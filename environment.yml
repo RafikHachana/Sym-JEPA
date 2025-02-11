@@ -1,0 +1,14 @@
+name: symjepa
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9
+  - pytorch=1.9.1
+  - pytorch-lightning=1.5.2
+  - torchtext=0.10.1
+  - pip
+  - pip:
+    - transformers==4.10.2
+    - pretty-midi==0.2.9 
