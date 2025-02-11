@@ -351,3 +351,14 @@ class MidiDataset(IterableDataset):
           print('Unable to cache file:', str(err))
     
     return sample
+  
+
+if __name__ == "__main__":
+  from glob import glob
+  files = glob('/rafik/Downloads/clean_midi/**/*.mid', recursive=True)
+  dm = MidiDataModule(files, max_len=512)
+  dm.setup()
+  dl = dm.train_dataloader()
+  for batch in dl:
+    print(batch['input_ids'].shape)
+    break

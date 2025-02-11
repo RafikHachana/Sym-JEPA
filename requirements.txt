@@ -1,0 +1,6 @@
+pytorch-lightning==1.5.2
+transformers==4.10.2
+pretty-midi==0.2.9
+torch==1.9.1
+torchtext==0.10.1
+
