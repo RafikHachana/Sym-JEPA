@@ -5,6 +5,8 @@ import pytorch_lightning as pl
 import math
 import os
 import pickle
+import argparse
+from glob import glob
 
 from input_representation import InputRepresentation
 from vocab import RemiVocab
@@ -354,11 +356,19 @@ class MidiDataset(IterableDataset):
   
 
 if __name__ == "__main__":
-  from glob import glob
-  files = glob('/rafik/Downloads/clean_midi/**/*.mid', recursive=True)
-  dm = MidiDataModule(files, max_len=512)
-  dm.setup()
-  dl = dm.train_dataloader()
-  for batch in dl:
-    print(batch['input_ids'].shape)
-    break
+    parser = argparse.ArgumentParser(description='MIDI Dataset loader')
+    parser.add_argument('--file_path', type=str, required=True,
+                      help='Path to directory containing MIDI files')
+    
+    args = parser.parse_args()
+    
+    files = glob(f'{args.file_path}/**/*.mid', recursive=True)
+    print(f"Found {len(files)} MIDI files")
+    
+    dm = MidiDataModule(files, max_len=512)
+    dm.setup()
+    dl = dm.train_dataloader()
+    
+    for batch in dl:
+        print(f"Batch shape: {batch['input_ids'].shape}")
+        break
