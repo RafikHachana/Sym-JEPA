@@ -90,6 +90,7 @@ class Vocab:
   def __init__(self, counter, specials=[PAD_TOKEN, UNK_TOKEN, BOS_TOKEN, EOS_TOKEN, MASK_TOKEN], unk_token=UNK_TOKEN):
     self.vocab = torchtext.vocab.Vocab(counter)
     
+    self.specials = specials
     special_tokens = []
     for token in self.specials:
         if token not in self.vocab.get_itos():
@@ -106,7 +107,6 @@ class Vocab:
         unk_index = self.vocab.get_stoi()[unk_token]
         self.vocab.set_default_index(unk_index)
 
-    self.specials = specials
 
   def to_i(self, token):
     return self.vocab.get_stoi()[token]
