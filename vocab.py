@@ -93,8 +93,7 @@ class Vocab:
     # Create vocab with special tokens first
     self.vocab = torchtext.vocab.Vocab(
         counter, 
-        specials=self.specials,
-        special_first=True
+        specials=self.specials
     )
 
     # Set unknown token index if specified
