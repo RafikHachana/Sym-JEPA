@@ -88,14 +88,23 @@ class Tokens:
 
 class Vocab:
   def __init__(self, counter, specials=[PAD_TOKEN, UNK_TOKEN, BOS_TOKEN, EOS_TOKEN, MASK_TOKEN], unk_token=UNK_TOKEN):
-    self.vocab = torchtext.vocab.vocab(counter)
-
-    self.specials = specials
-    for i, token in enumerate(self.specials):
-      self.vocab.insert_token(token, i)
+    self.vocab = torchtext.vocab.Vocab(counter)
     
+    special_tokens = []
+    for token in self.specials:
+        if token not in self.vocab.get_itos():
+            special_tokens.append(token)
+    
+    new_tokens = special_tokens + self.vocab.get_itos()
+    self.vocab = torchtext.vocab.Vocab(
+        counter, 
+        specials=special_tokens,
+        special_first=True
+    )
+
     if unk_token in specials:
-      self.vocab.set_default_index(self.vocab.get_stoi()[unk_token])
+        unk_index = self.vocab.get_stoi()[unk_token]
+        self.vocab.set_default_index(unk_index)
 
   def to_i(self, token):
     return self.vocab.get_stoi()[token]
