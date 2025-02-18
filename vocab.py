@@ -88,45 +88,39 @@ class Tokens:
 
 class Vocab:
   def __init__(self, counter, specials=[PAD_TOKEN, UNK_TOKEN, BOS_TOKEN, EOS_TOKEN, MASK_TOKEN], unk_token=UNK_TOKEN):
-    self.vocab = torchtext.vocab.Vocab(counter)
-    
     self.specials = specials
-    special_tokens = []
-    for token in self.specials:
-        if token not in self.vocab.get_itos():
-            special_tokens.append(token)
     
-    new_tokens = special_tokens + self.vocab.get_itos()
+    # Create vocab with special tokens first
     self.vocab = torchtext.vocab.Vocab(
         counter, 
-        specials=special_tokens,
+        specials=self.specials,
         special_first=True
     )
 
+    # Set unknown token index if specified
     if unk_token in specials:
-        unk_index = self.vocab.get_stoi()[unk_token]
+        unk_index = self.vocab[unk_token]  # Using __getitem__ instead of get_stoi
         self.vocab.set_default_index(unk_index)
 
-
   def to_i(self, token):
-    return self.vocab.get_stoi()[token]
+    return self.vocab[token]  # Using __getitem__ instead of get_stoi
 
   def to_s(self, idx):
     if idx >= len(self.vocab):
       return UNK_TOKEN
     else:
-      return self.vocab.get_itos()[idx]
+      return self.vocab.lookup_token(idx)  # Using lookup_token instead of get_itos
 
   def __len__(self):
     return len(self.vocab)
 
   def encode(self, seq):
-    return self.vocab(seq)
+    return [self.vocab[token] for token in seq]  # Manual encoding since vocab(seq) might not be supported
 
   def decode(self, seq):
     if isinstance(seq, Tensor):
       seq = seq.numpy()
-    return self.vocab.lookup_tokens(seq)
+    return [self.vocab.lookup_token(idx) for idx in seq]  # Using lookup_token for each index
 
 
 class RemiVocab(Vocab):
