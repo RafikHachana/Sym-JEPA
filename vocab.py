@@ -106,6 +106,8 @@ class Vocab:
         unk_index = self.vocab.get_stoi()[unk_token]
         self.vocab.set_default_index(unk_index)
 
+    self.specials = specials
+
   def to_i(self, token):
     return self.vocab.get_stoi()[token]
 
