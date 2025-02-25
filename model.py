@@ -15,7 +15,7 @@ class SymJEPA(pl.LightningModule):
                context_size=512,
                lr=1e-4,
                lr_schedule='sqrt_decay',
-               warmup_steps=None,
+               warmup_steps=100,
                max_steps=None,
                encoder_layers=6,
                intermediate_size=2048,
