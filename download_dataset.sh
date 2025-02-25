@@ -31,8 +31,11 @@ wget -O "$DOWNLOAD_PATH" "$DATASET_URL"
 if file "$DOWNLOAD_PATH" | grep -qi "Zip archive data"; then
     echo "Unzipping dataset..."
     unzip -o "$DOWNLOAD_PATH" -d "$DEST_DIR"
+elif file "$DOWNLOAD_PATH" | grep -qi "tar archive"; then
+    echo "Untarring dataset..."
+    tar -xzf "$DOWNLOAD_PATH" -C "$DEST_DIR"
 else
-    echo "Downloaded file is not a zip archive. Skipping unzip."
+    echo "Downloaded file is neither a zip nor a tar archive. Skipping unzip."
 fi
 
-echo "Dataset has been downloaded and processed in '$DEST_DIR'." 
+echo "Dataset has been downloaded and processed in '$DEST_DIR'."

@@ -1,14 +1,19 @@
 name: symjepa
 channels:
   - pytorch
+  - nvidia
   - conda-forge
   - defaults
 dependencies:
-  - python=3.9
-  - pytorch=2.3.1
+  - python=3.8
+  - pytorch=2.0.1
+  - torchvision
+  - torchaudio
+  - pytorch-cuda=11.7
   - pytorch-lightning=2.2.5
   - torchtext=0.15.2
   - pip
   - pip:
     - transformers==4.10.2
-    - pretty-midi==0.2.9 
+    - pretty-midi==0.2.9
+    - torchdata==0.6.1

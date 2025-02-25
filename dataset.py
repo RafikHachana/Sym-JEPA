@@ -1,5 +1,5 @@
 import torch
-from torch.utils.data import DataLoader, IterableDataset
+from torch.utils.data import DataLoader, Dataset
 from torch.nn.utils.rnn import pad_sequence
 import pytorch_lightning as pl
 import math
@@ -56,9 +56,6 @@ class MidiDataModule(pl.LightningDataModule):
       **self.kwargs
     )
 
-    # Use a shuffled dataset only for training
-    self.train_ds = torch.utils.data.datapipes.iter.combinatorics.ShuffleIterDataPipe(self.train_ds, buffer_size=2048)
-
     self.collator = SeqCollator(pad_token=self.vocab.to_i(PAD_TOKEN), context_size=self.max_len)
 
   def train_dataloader(self):
@@ -66,6 +63,7 @@ class MidiDataModule(pl.LightningDataModule):
                       collate_fn=self.collator, 
                       batch_size=self.batch_size, 
                       pin_memory=self.pin_memory, 
+                      shuffle=True,
                       num_workers=self.num_workers)
 
   def val_dataloader(self):
@@ -145,7 +143,7 @@ class SeqCollator:
     
     return batch
 
-class MidiDataset(IterableDataset):
+class MidiDataset(torch.utils.data.Dataset):
   def __init__(self, 
                midi_files, 
                max_len, 
@@ -176,113 +174,94 @@ class MidiDataset(IterableDataset):
     if CACHE_PATH:
       self.cache_path = os.path.join(CACHE_PATH, InputRepresentation.version())
       os.makedirs(self.cache_path, exist_ok=True)
-      # print(f"Using cache path: {self.cache_path}")
     else:
       self.cache_path = None
-
-
-  def __iter__(self):
-    """
-    Returns an entry in the dataset as a dictionary
-    with the following keys:
-      - bar IDs
-      - position IDs
-      - file path/name
-      - input IDs
-    """
-    # This part returns the entries to the dataloader
-    worker_info = torch.utils.data.get_worker_info()
-    self.split = _get_split(self.files, worker_info)
-
-    split_len = len(self.split)
     
-    for i in range(split_len):
+    # Pre-process all files and store their data
+    self.data = []
+    for file in self.files:
       try:
-        current_file = self.load_file(self.split[i])
+        current_file = self.load_file(file)
+        events = current_file['events']
+
+        # Identify start of bars
+        bars, bar_ids = self.get_bars(events, include_ids=True)
+        if len(bars) > self.max_bars:
+          if self.print_errors:
+            print(f"WARNING: REMI sequence has more than {self.max_bars} bars: {len(bars)} event bars.")
+          continue
+
+        # Identify positions
+        position_ids = self.get_positions(events)
+        max_pos = position_ids.max()
+        if max_pos > self.max_positions:
+          if self.print_errors:
+            print(f"WARNING: REMI sequence has more than {self.max_positions} positions: {max_pos.item()} positions found")
+          continue
+
+        # Mask bar tokens if required
+        if self.bar_token_mask is not None and self.max_bars_per_context > 0:
+          events = self.mask_bar_tokens(events, bar_token_mask=self.bar_token_mask)
+        
+        # Encode tokens with appropriate vocabulary
+        event_ids = torch.tensor(self.vocab.encode(events), dtype=torch.long)
+
+        bos, eos = self.get_bos_eos_events()
+        zero = torch.tensor([0], dtype=torch.int)
+
+        if self.max_bars_per_context and self.max_bars_per_context > 0:
+          # Find all indices where a new context starts based on number of bars per context
+          starts = [bars[i] for i in range(0, len(bars), self.max_bars_per_context)]
+          # Convert starts to ranges
+          contexts = list(zip(starts[:-1], starts[1:])) + [(starts[-1], len(event_ids))]
+        else:
+          event_ids = torch.cat([bos, event_ids, eos])
+          bar_ids = torch.cat([zero, bar_ids, zero])
+          position_ids = torch.cat([zero, position_ids, zero])
+
+          if self.max_len > 0:
+            starts = list(range(0, len(event_ids), self.max_len+1))
+            if len(starts) > 1:
+              contexts = [(start, start + self.max_len+1) for start in starts[:-1]] + [(len(event_ids) - (self.max_len+1), len(event_ids))]
+            elif len(starts) > 0:
+              contexts = [(starts[0], self.max_len+1)]
+          else:
+            contexts = [(0, len(event_ids))]
+
+        if self.max_contexts_per_file and self.max_contexts_per_file > 0:
+          contexts = contexts[:self.max_contexts_per_file]
+
+        for start, end in contexts:
+          # Add <bos> and <eos> to each context if contexts are limited to a certain number of bars
+          if self.max_bars_per_context and self.max_bars_per_context > 0:
+            src = torch.cat([bos, event_ids[start:end], eos])
+            b_ids = torch.cat([zero, bar_ids[start:end], zero])
+            p_ids = torch.cat([zero, position_ids[start:end], zero])
+          else:
+            src = event_ids[start:end]
+            b_ids = bar_ids[start:end]
+            p_ids = position_ids[start:end]
+
+          if self.max_len > 0:
+            src = src[:self.max_len + 1]
+
+          self.data.append({
+            'input_ids': src,
+            'file': os.path.basename(file),
+            'bar_ids': b_ids,
+            'position_ids': p_ids,
+          })
+
       except ValueError as err:
         if self.print_errors:
           print(err)
-        # raise err
         continue
 
-      events = current_file['events']
+  def __len__(self):
+    return len(self.data)
 
-      # Identify start of bars
-      # Get where the bars happen
-      bars, bar_ids = self.get_bars(events, include_ids=True)
-      if len(bars) > self.max_bars:
-        if self.print_errors:
-          print(f"WARNING: REMI sequence has more than {self.max_bars} bars: {len(bars)} event bars.")
-        continue
-
-      # Identify positions
-      # TODO: what is a position?
-      position_ids = self.get_positions(events)
-      max_pos = position_ids.max()
-      if max_pos > self.max_positions:
-        if self.print_errors:
-          print(f"WARNING: REMI sequence has more than {self.max_positions} positions: {max_pos.item()} positions found")
-        continue
-
-      # Mask bar tokens if required
-      # TODO: Understand this masking thing
-      if self.bar_token_mask is not None and self.max_bars_per_context > 0:
-        events = self.mask_bar_tokens(events, bar_token_mask=self.bar_token_mask)
-      
-      # Encode tokens with appropriate vocabulary
-      event_ids = torch.tensor(self.vocab.encode(events), dtype=torch.long)
-
-      bos, eos = self.get_bos_eos_events()
-      zero = torch.tensor([0], dtype=torch.int)
-
-      if self.max_bars_per_context and self.max_bars_per_context > 0:
-        # TODO: What is a context?
-        # Find all indices where a new context starts based on number of bars per context
-        starts = [bars[i] for i in range(0, len(bars), self.max_bars_per_context)]
-        # Convert starts to ranges
-        contexts = list(zip(starts[:-1], starts[1:])) + [(starts[-1], len(event_ids))]
-        # # Limit the size of the range if it's larger than the max. context size
-        # contexts = [(max(start, end - (self.max_len+1)), end) for (start, end) in contexts]
-
-      else:
-        event_ids = torch.cat([bos, event_ids, eos])
-        bar_ids = torch.cat([zero, bar_ids, zero])
-        position_ids = torch.cat([zero, position_ids, zero])
-
-        if self.max_len > 0:
-          starts = list(range(0, len(event_ids), self.max_len+1))
-          if len(starts) > 1:
-            contexts = [(start, start + self.max_len+1) for start in starts[:-1]] + [(len(event_ids) - (self.max_len+1), len(event_ids))]
-          elif len(starts) > 0:
-            contexts = [(starts[0], self.max_len+1)]
-        else:
-          contexts = [(0, len(event_ids))]
-
-      if self.max_contexts_per_file and self.max_contexts_per_file > 0:
-        contexts = contexts[:self.max_contexts_per_file]
-
-      for start, end in contexts:
-        # Add <bos> and <eos> to each context if contexts are limited to a certain number of bars
-        if self.max_bars_per_context and self.max_bars_per_context > 0:
-          src = torch.cat([bos, event_ids[start:end], eos])
-          b_ids = torch.cat([zero, bar_ids[start:end], zero])
-          p_ids = torch.cat([zero, position_ids[start:end], zero])
-        else:
-          src = event_ids[start:end]
-          b_ids = bar_ids[start:end]
-          p_ids = position_ids[start:end]
-
-        if self.max_len > 0:
-          src = src[:self.max_len + 1]
-
-        x = {
-          'input_ids': src,
-          'file': os.path.basename(self.split[i]),
-          'bar_ids': b_ids,
-          'position_ids': p_ids,
-        }
-
-        yield x
+  def __getitem__(self, idx):
+    return self.data[idx]
 
   def get_bars(self, events, include_ids=False):
     # Seems like we have the bar tokens at this point, so it should be ok to just get them from the sequence
@@ -364,6 +343,11 @@ if __name__ == "__main__":
     
     files = glob(f'{args.file_path}/**/*.mid', recursive=True)
     print(f"Found {len(files)} MIDI files")
+    
+    if len(files) == 0:
+        print("Error: No MIDI files found in the specified directory.")
+        print("Please make sure the directory exists and contains .mid files.")
+        exit(1)
     
     dm = MidiDataModule(files, max_len=512)
     dm.setup()

@@ -1,6 +1,6 @@
-pytorch-lightning==1.5.2
+pytorch-lightning==2.2.5
 transformers==4.10.2
 pretty-midi==0.2.9
-torch==1.9.1
-torchtext==0.10.1
-
+torch==2.0.1
+torchtext==0.15.2
+torchdata==0.6.1

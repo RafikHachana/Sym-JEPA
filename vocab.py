@@ -91,8 +91,9 @@ class Vocab:
     self.specials = specials
     
     # Create vocab with special tokens first
-    self.vocab = torchtext.vocab.Vocab(
+    self.vocab = torchtext.vocab.vocab(
         counter, 
+        special_first=True,
         specials=self.specials
     )
 
