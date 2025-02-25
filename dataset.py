@@ -115,14 +115,20 @@ class SeqCollator:
       max_len = xs.size(1)
       max_desc_len = int(1e4)
 
+    # For next token prediction, we need to remove the last token from the input
     tmp = xs[:, :(max_len + 1)][:, :-1]
     labels = xs[:, :(max_len + 1)][:, 1:].clone().detach()
-    xs = tmp
 
-    seq_len = xs.size(1)
+    seq_len = tmp.size(1)
     
-    batch['input_ids'] = xs
+    batch['input_ids'] = tmp
     batch['labels'] = labels
+
+
+    # For JEPA training
+    jepa_context_size = xs.size(1) * 3 // 4
+    batch['context_ids'] = xs[:, :max_len][:, :jepa_context_size]
+    batch['target_ids'] = xs[:, :max_len][:, jepa_context_size:]
 
     if 'position_ids' in features[0]:
       position_ids = [feature['position_ids'] for feature in features]

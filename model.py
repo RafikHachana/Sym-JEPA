@@ -24,7 +24,7 @@ class SymJEPA(pl.LightningModule):
                ema=(0.996, 0.999),
                ipe=1000,
                ipe_scale=1,
-               num_epochs=100):
+               num_epochs=1):
     super(SymJEPA, self).__init__()
 
     self.description_options = description_options
@@ -85,22 +85,24 @@ class SymJEPA(pl.LightningModule):
       **kwargs
     )
 
-  def forward(self, z, encode_target=False):
-    z_emb = self.remi_in(z)
-    out = self.context_encoder(inputs_embeds=z_emb, output_hidden_states=True)
+  def forward(self, context_ids, target_ids=None):
+    context_emb = self.remi_in(context_ids)
+    out = self.context_encoder(inputs_embeds=context_emb, output_hidden_states=True)
     encoder_hidden = out.hidden_states[-1]
-    pred = self.predictor(inputs_embeds=z_emb, output_hidden_states=True)
-    pred = pred.last_hidden_state
-    if encode_target:
+
+
+    if target_ids is not None:
+      pred = self.predictor(inputs_embeds=encoder_hidden, output_hidden_states=True)
+      pred_hidden = pred.last_hidden_state
       with torch.no_grad():
-        out = self.target_encoder(inputs_embeds=z_emb, output_hidden_states=True)
+        target_emb = self.remi_in(target_ids)
+        out = self.target_encoder(inputs_embeds=target_emb, output_hidden_states=True)
         target_encoder_hidden = out.last_hidden_state
-      return pred, target_encoder_hidden
+      return pred_hidden, target_encoder_hidden
     return encoder_hidden
     
   def get_loss(self, batch):
-    x = batch['input_ids']
-    pred, target = self(x, encode_target=True)
+    pred, target = self(batch['context_ids'], batch['target_ids'])
     
     # Compute loss with the tensor outputs
     loss = self.loss_fn(pred, target)
