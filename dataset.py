@@ -272,7 +272,7 @@ class MidiDataset(torch.utils.data.Dataset):
 
       except ValueError as err:
         if self.print_errors:
-          logging.exception(err)       
+          print(f"Error loading file {file}: {err}")       
         continue
 
   def __len__(self):
