@@ -127,8 +127,19 @@ class SeqCollator:
 
     # For JEPA training
     jepa_context_size = xs.size(1) * 3 // 4
-    batch['context_ids'] = xs[:, :max_len][:, :jepa_context_size]
-    batch['target_ids'] = xs[:, :max_len][:, jepa_context_size:]
+    context = xs[:, :max_len][:, :jepa_context_size]
+    target = xs[:, :max_len][:, jepa_context_size:]
+    
+    # Pad to max_len
+    if context.size(1) < max_len:
+        pad_size = max_len - context.size(1)
+        context = torch.nn.functional.pad(context, (0, pad_size), value=self.pad_token)
+    if target.size(1) < max_len:
+        pad_size = max_len - target.size(1)
+        target = torch.nn.functional.pad(target, (0, pad_size), value=self.pad_token)
+        
+    batch['context_ids'] = context
+    batch['target_ids'] = target
 
     if 'position_ids' in features[0]:
       position_ids = [feature['position_ids'] for feature in features]
