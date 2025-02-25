@@ -28,14 +28,20 @@ echo "Downloading dataset from '$DATASET_URL' to '$DOWNLOAD_PATH'..."
 wget -O "$DOWNLOAD_PATH" "$DATASET_URL"
 
 # Check if the downloaded file is a zip archive and unzip if it is.
-if file "$DOWNLOAD_PATH" | grep -qi "Zip archive data"; then
+if [[ "$DOWNLOAD_PATH" == *.zip ]]; then
     echo "Unzipping dataset..."
     unzip -o "$DOWNLOAD_PATH" -d "$DEST_DIR"
-elif file "$DOWNLOAD_PATH" | grep -qi "tar archive"; then
-    echo "Untarring dataset..."
+    rm "$DOWNLOAD_PATH"
+elif [[ "$DOWNLOAD_PATH" == *.tar.gz ]] || [[ "$DOWNLOAD_PATH" == *.tgz ]]; then
+    echo "Extracting gzipped tar archive..."
     tar -xzf "$DOWNLOAD_PATH" -C "$DEST_DIR"
+    rm "$DOWNLOAD_PATH"
+elif [[ "$DOWNLOAD_PATH" == *.tar ]]; then
+    echo "Extracting tar archive..."
+    tar -xf "$DOWNLOAD_PATH" -C "$DEST_DIR"
+    rm "$DOWNLOAD_PATH"
 else
-    echo "Downloaded file is neither a zip nor a tar archive. Skipping unzip."
+    echo "Downloaded file format not recognized. Keeping as is."
 fi
 
 echo "Dataset has been downloaded and processed in '$DEST_DIR'."
