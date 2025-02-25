@@ -2,7 +2,7 @@ import pytorch_lightning as pl
 import torch.optim
 import torch.nn as nn
 import math
-from datasets import MidiDataModule
+from dataset import MidiDataModule
 from vocab import RemiVocab
 from constants import PAD_TOKEN
 from transformers import BertConfig, BertModel

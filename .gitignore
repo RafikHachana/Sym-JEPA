@@ -6,3 +6,5 @@ venv
 **/*.pth
 **/*.txt
 **/*.wav
+.env
+wandb/
