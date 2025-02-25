@@ -10,8 +10,8 @@ from copy import deepcopy
 
 class SymJEPA(pl.LightningModule):
   def __init__(self,
-               d_model=512,
-               d_latent=512,
+               d_model=256,
+               d_latent=256,
                context_size=512,
                lr=1e-4,
                lr_schedule='sqrt_decay',
@@ -90,17 +90,21 @@ class SymJEPA(pl.LightningModule):
     out = self.context_encoder(inputs_embeds=z_emb, output_hidden_states=True)
     encoder_hidden = out.hidden_states[-1]
     pred = self.predictor(inputs_embeds=z_emb, output_hidden_states=True)
+    pred = pred.last_hidden_state
     if encode_target:
       with torch.no_grad():
         out = self.target_encoder(inputs_embeds=z_emb, output_hidden_states=True)
-        target_encoder_hidden = out.hidden_states[-1]
+        target_encoder_hidden = out.last_hidden_state
       return pred, target_encoder_hidden
     return encoder_hidden
     
   def get_loss(self, batch):
     x = batch['input_ids']
     pred, target = self(x, encode_target=True)
+    
+    # Compute loss with the tensor outputs
     loss = self.loss_fn(pred, target)
+    
     return loss
   
   def training_step(self, batch, batch_idx):
@@ -109,7 +113,7 @@ class SymJEPA(pl.LightningModule):
     # Update the target parameters
     with torch.no_grad():
       m = next(self.momentum_scheduler)
-      for param_q, param_k in zip(self.encoder.parameters(), self.target_encoder.parameters()):
+      for param_q, param_k in zip(self.context_encoder.parameters(), self.target_encoder.parameters()):
           param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
 
       self.log('target_momentum', m, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
