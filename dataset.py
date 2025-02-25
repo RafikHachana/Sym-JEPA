@@ -7,6 +7,7 @@ import os
 import pickle
 import argparse
 from glob import glob
+import logging
 
 from input_representation import InputRepresentation
 from vocab import RemiVocab
@@ -155,7 +156,7 @@ class MidiDataset(torch.utils.data.Dataset):
                bar_token_mask=None,
                bar_token_idx=2,
                use_cache=True,
-               print_errors=False):
+               print_errors=True):
     self.files = midi_files
     self.group_bars = group_bars
     self.max_len = max_len
@@ -254,7 +255,7 @@ class MidiDataset(torch.utils.data.Dataset):
 
       except ValueError as err:
         if self.print_errors:
-          print(err)
+          logging.exception(err)       
         continue
 
   def __len__(self):
@@ -338,11 +339,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='MIDI Dataset loader')
     parser.add_argument('--file_path', type=str, required=True,
                       help='Path to directory containing MIDI files')
+
+    parser.add_argument('--limit', type=int, default=None, 
+                      help='Limit the number of files to load')
     
     args = parser.parse_args()
     
     files = glob(f'{args.file_path}/**/*.mid', recursive=True)
     print(f"Found {len(files)} MIDI files")
+
+    if args.limit:
+        files = files[:args.limit]
+        print(f"Limiting to {args.limit} files")
     
     if len(files) == 0:
         print("Error: No MIDI files found in the specified directory.")
@@ -351,8 +359,20 @@ if __name__ == "__main__":
     
     dm = MidiDataModule(files, max_len=512)
     dm.setup()
+    
+    print(f"\nDataset splits:")
+    print(f"Train files: {len(dm.train_ds.files)}")
+    print(f"Valid files: {len(dm.valid_ds.files)}")
+    print(f"Test files: {len(dm.test_ds.files)}")
+    
+    print(f"\nProcessed examples:")
+    print(f"Train examples: {len(dm.train_ds)}")
+    print(f"Valid examples: {len(dm.valid_ds)}")
+    print(f"Test examples: {len(dm.test_ds)}")
+    
     dl = dm.train_dataloader()
     
     for batch in dl:
-        print(f"Batch shape: {batch['input_ids'].shape}")
+        print(f"\nBatch shape: {batch['input_ids'].shape}")
+        print(f"Batch keys: {batch.keys()}")
         break

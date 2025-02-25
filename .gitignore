@@ -3,4 +3,6 @@ venv
 .conda/
 **/*.mid
 **/*.tar.gz
-
+**/*.pth
+**/*.txt
+**/*.wav

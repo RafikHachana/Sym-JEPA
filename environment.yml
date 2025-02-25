@@ -15,5 +15,5 @@ dependencies:
   - pip
   - pip:
     - transformers==4.10.2
-    - pretty-midi==0.2.9
+    - pretty-midi==0.2.10
     - torchdata==0.6.1
