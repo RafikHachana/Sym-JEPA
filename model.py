@@ -90,7 +90,6 @@ class SymJEPA(pl.LightningModule):
     out = self.context_encoder(inputs_embeds=context_emb, output_hidden_states=True)
     encoder_hidden = out.hidden_states[-1]
 
-
     if target_ids is not None:
       pred = self.predictor(inputs_embeds=encoder_hidden, output_hidden_states=True)
       pred_hidden = pred.last_hidden_state
@@ -98,6 +97,7 @@ class SymJEPA(pl.LightningModule):
         target_emb = self.remi_in(target_ids)
         out = self.target_encoder(inputs_embeds=target_emb, output_hidden_states=True)
         target_encoder_hidden = out.last_hidden_state
+
       return pred_hidden, target_encoder_hidden
     return encoder_hidden
     
@@ -126,6 +126,24 @@ class SymJEPA(pl.LightningModule):
   def validation_step(self, batch, batch_idx):
     loss = self.get_loss(batch)
     self.log('valid_loss', loss.detach(), on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+
+    # Get encoder outputs for norm calculation
+    context_emb = self.remi_in(batch['context_ids'])
+    context_out = self.context_encoder(inputs_embeds=context_emb, output_hidden_states=True)
+    context_hidden = context_out.hidden_states[-1]
+    
+    with torch.no_grad():
+        target_emb = self.remi_in(batch['target_ids'])
+        target_out = self.target_encoder(inputs_embeds=target_emb, output_hidden_states=True)
+        target_hidden = target_out.hidden_states[-1]
+        
+        # Calculate mean norms
+        context_norm = torch.norm(context_hidden, dim=-1).mean()
+        target_norm = torch.norm(target_hidden, dim=-1).mean()
+        
+        # Log the norms
+        self.log('val_context_encoder_norm', context_norm, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+        self.log('val_target_encoder_norm', target_norm, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
     return loss
   
   def test_step(self, batch, batch_idx):
