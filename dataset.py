@@ -25,7 +25,8 @@ class MidiDataModule(pl.LightningDataModule):
                batch_size=32, 
                num_workers=4,
                pin_memory=True, 
-               train_val_test_split=(0.95, 0.1, 0.05), 
+               train_val_test_split=(0.95, 0.1, 0.05),
+               jepa_context_ratio=0.75,
                **kwargs):
     super().__init__()
     self.batch_size = batch_size
@@ -34,6 +35,7 @@ class MidiDataModule(pl.LightningDataModule):
     self.files = files
     self.train_val_test_split = train_val_test_split
     self.max_len = max_len
+    self.jepa_context_ratio = jepa_context_ratio
 
     self.vocab = RemiVocab()
 
@@ -57,7 +59,11 @@ class MidiDataModule(pl.LightningDataModule):
       **self.kwargs
     )
 
-    self.collator = SeqCollator(pad_token=self.vocab.to_i(PAD_TOKEN), context_size=self.max_len)
+    self.collator = SeqCollator(
+        pad_token=self.vocab.to_i(PAD_TOKEN), 
+        context_size=self.max_len,
+        jepa_context_ratio=self.jepa_context_ratio
+    )
 
   def train_dataloader(self):
     return DataLoader(self.train_ds, 
@@ -98,9 +104,10 @@ def _get_split(files, worker_info):
 
 
 class SeqCollator:
-  def __init__(self, pad_token=0, context_size=512):
+  def __init__(self, pad_token=0, context_size=512, jepa_context_ratio=0.75):
     self.pad_token = pad_token
     self.context_size = context_size
+    self.jepa_context_ratio = jepa_context_ratio
 
   def __call__(self, features):
     batch = {}
@@ -125,8 +132,8 @@ class SeqCollator:
     batch['labels'] = labels
 
 
-    # For JEPA training
-    jepa_context_size = xs.size(1) * 3 // 4
+    # For JEPA training - use configurable ratio
+    jepa_context_size = int(xs.size(1) * self.jepa_context_ratio)
     context = xs[:, :max_len][:, :jepa_context_size]
     target = xs[:, :max_len][:, jepa_context_size:]
     

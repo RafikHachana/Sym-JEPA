@@ -23,7 +23,9 @@ def main():
     parser.add_argument("--max_epochs", type=int,
                        default=int(os.getenv('MAX_EPOCHS', 100)),
                        help="Number of training epochs")
-
+    parser.add_argument("--jepa_context_ratio", type=float,
+                       default=float(os.getenv('JEPA_CONTEXT_RATIO', 0.75)),
+                       help="Ratio of sequence length to use as context (default: 0.75)")
     parser.add_argument("--limit", type=int, default=None,
                        help="Limit the number of files to load")
     args = parser.parse_args()
@@ -38,22 +40,28 @@ def main():
     # Create the model instance
     model = SymJEPA(num_epochs=args.max_epochs)
 
-    # Prepare the data module by collecting all MIDI files from the specified directory
+    # Prepare the data module with JEPA context ratio
     midi_files = glob(os.path.join(args.midi_dir, "**/*.mid"), recursive=True)
     if args.limit:
         midi_files = midi_files[:args.limit]
         print(f"Limiting to {args.limit} files")
-    data_module = MidiDataModule(midi_files, max_len=512)
+    data_module = MidiDataModule(
+        midi_files, 
+        max_len=512,
+        jepa_context_ratio=args.jepa_context_ratio
+    )
 
-    # Configure the PyTorch Lightning Trainer to use the Wandb logger
+    # Configure the PyTorch Lightning Trainer
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
         logger=wandb_logger,
-        # You can add additional Trainer parameters here as needed (e.g., accelerator, devices, etc.)
     )
 
-    # Optionally log hyperparameters
-    wandb_logger.log_hyperparams(model.hparams)
+    # Log hyperparameters including JEPA context ratio
+    wandb_logger.log_hyperparams({
+        **model.hparams,
+        'jepa_context_ratio': args.jepa_context_ratio
+    })
 
     # Begin training
     trainer.fit(model, data_module)
