@@ -34,6 +34,19 @@ def main():
                        help="Limit number of batches per epoch (for testing)")
     parser.add_argument("--use_mask_padding", action="store_true",
                        help="Use MASK tokens instead of PAD tokens for JEPA context/target")
+    parser.add_argument("--masking_mode", type=str, 
+                       choices=['contiguous', 'random', 'segments'],
+                       default='contiguous',
+                       help="Masking mode when use_mask_padding is True")
+    parser.add_argument("--masking_probability", type=float,
+                       default=0.25,
+                       help="Probability of masking tokens in random mode")
+    parser.add_argument("--segment_size_ratio", type=float,
+                       default=0.1,
+                       help="Size of segments to mask as fraction of sequence length")
+    parser.add_argument("--num_segments", type=int,
+                       default=3,
+                       help="Number of segments to mask in segments mode")
 
     args = parser.parse_args()
 
@@ -56,7 +69,11 @@ def main():
         midi_files, 
         max_len=512,
         jepa_context_ratio=args.jepa_context_ratio,
-        use_mask_padding=args.use_mask_padding
+        use_mask_padding=args.use_mask_padding,
+        masking_mode=args.masking_mode,
+        masking_probability=args.masking_probability,
+        segment_size_ratio=args.segment_size_ratio,
+        num_segments=args.num_segments
     )
 
     # Configure the PyTorch Lightning Trainer

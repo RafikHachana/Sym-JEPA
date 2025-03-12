@@ -8,6 +8,7 @@ import pickle
 import argparse
 from glob import glob
 import logging
+import numpy as np
 
 from input_representation import InputRepresentation
 from vocab import RemiVocab
@@ -28,6 +29,10 @@ class MidiDataModule(pl.LightningDataModule):
                train_val_test_split=(0.95, 0.1, 0.05),
                jepa_context_ratio=0.75,
                use_mask_padding=False,
+               masking_mode='contiguous',
+               masking_probability=0.25,
+               segment_size_ratio=0.1,
+               num_segments=3,
                **kwargs):
     super().__init__()
     self.batch_size = batch_size
@@ -38,6 +43,10 @@ class MidiDataModule(pl.LightningDataModule):
     self.max_len = max_len
     self.jepa_context_ratio = jepa_context_ratio
     self.use_mask_padding = use_mask_padding
+    self.masking_mode = masking_mode
+    self.masking_probability = masking_probability
+    self.segment_size_ratio = segment_size_ratio
+    self.num_segments = num_segments
     self.vocab = RemiVocab()
     self.kwargs = kwargs
 
@@ -61,10 +70,14 @@ class MidiDataModule(pl.LightningDataModule):
 
     self.collator = SeqCollator(
         pad_token=self.vocab.to_i(PAD_TOKEN),
-        mask_token=self.vocab.to_i(MASK_TOKEN),  # Get actual mask token ID from vocab
+        mask_token=self.vocab.to_i(MASK_TOKEN),
         context_size=self.max_len,
         jepa_context_ratio=self.jepa_context_ratio,
-        use_mask_padding=self.use_mask_padding
+        use_mask_padding=self.use_mask_padding,
+        masking_mode=self.masking_mode,
+        masking_probability=self.masking_probability,
+        segment_size_ratio=self.segment_size_ratio,
+        num_segments=self.num_segments
     )
 
   def train_dataloader(self):
@@ -106,69 +119,95 @@ def _get_split(files, worker_info):
 
 
 class SeqCollator:
-  def __init__(self, pad_token=0, mask_token=4, context_size=512, jepa_context_ratio=0.75, use_mask_padding=False):
+  def __init__(self, pad_token=0, mask_token=None, context_size=512, 
+               jepa_context_ratio=0.75, use_mask_padding=False,
+               masking_mode='contiguous',
+               masking_probability=0.25,
+               segment_size_ratio=0.1,
+               num_segments=3):
     self.pad_token = pad_token
     self.mask_token = mask_token
     self.context_size = context_size
     self.jepa_context_ratio = jepa_context_ratio
     self.use_mask_padding = use_mask_padding
+    self.masking_mode = masking_mode
+    self.masking_probability = masking_probability
+    self.segment_size_ratio = segment_size_ratio
+    self.num_segments = num_segments
+
+  def create_masks(self, seq_length):
+    if self.masking_mode == 'contiguous':
+      # Original contiguous masking
+      mask_start = int(seq_length * self.jepa_context_ratio)
+      mask = torch.zeros(seq_length, dtype=torch.bool)
+      mask[mask_start:] = True
+      
+    elif self.masking_mode == 'random':
+      # Random token masking
+      mask = torch.rand(seq_length) < self.masking_probability
+      
+    elif self.masking_mode == 'segments':
+      # Non-overlapping segments
+      mask = torch.zeros(seq_length, dtype=torch.bool)
+      segment_size = int(seq_length * self.segment_size_ratio)
+      valid_starts = list(range(0, seq_length - segment_size))
+      
+      # Randomly select start positions for segments
+      if len(valid_starts) >= self.num_segments:
+        start_positions = torch.tensor(
+            sorted(np.random.choice(valid_starts, self.num_segments, replace=False))
+        )
+        
+        # Create masks for each segment
+        for start in start_positions:
+          mask[start:start + segment_size] = True
+      else:
+        # Fallback to random masking if sequence is too short
+        mask = torch.rand(seq_length) < self.masking_probability
+    
+    return mask
 
   def __call__(self, features):
     batch = {}
-
+    
     xs = [feature['input_ids'] for feature in features]
     xs = pad_sequence(xs, batch_first=True, padding_value=self.pad_token)
 
     if self.context_size > 0:
-      max_len = self.context_size
-      max_desc_len = self.context_size
+      max_len = min(self.context_size, xs.size(1))  # Use actual sequence length
     else:
       max_len = xs.size(1)
-      max_desc_len = int(1e4)
 
-    # For next token prediction, we need to remove the last token from the input
-    tmp = xs[:, :(max_len + 1)][:, :-1]
-    labels = xs[:, :(max_len + 1)][:, 1:].clone().detach()
+    if self.use_mask_padding:
+      batch_size = xs.size(0)
+      # Create masks using actual sequence length
+      masks = [self.create_masks(xs.size(1)) for _ in range(batch_size)]
+      masks = torch.stack(masks)
+      
+      # Create masked versions for context and target
+      context = xs.clone()
+      target = xs.clone()
+      
+      # Apply masks
+      context[masks] = self.mask_token  # Mask target tokens in context
+      target[~masks] = self.mask_token  # Mask context tokens in target
+      
+    else:
+      # Original padding method
+      jepa_context_size = int(xs.size(1) * self.jepa_context_ratio)
+      context = xs[:, :jepa_context_size]
+      target = xs[:, jepa_context_size:]
+      
+      # Pad to max_len
+      if context.size(1) < max_len:
+          pad_size = max_len - context.size(1)
+          context = torch.nn.functional.pad(context, (0, pad_size), value=self.pad_token)
+      if target.size(1) < max_len:
+          pad_size = max_len - target.size(1)
+          target = torch.nn.functional.pad(target, (0, pad_size), value=self.pad_token)
 
-    seq_len = tmp.size(1)
-    
-    batch['input_ids'] = tmp
-    batch['labels'] = labels
-
-
-    # For JEPA training - use configurable ratio
-    jepa_context_size = int(xs.size(1) * self.jepa_context_ratio)
-    context = xs[:, :max_len][:, :jepa_context_size]
-    target = xs[:, :max_len][:, jepa_context_size:]
-    
-    # Pad to max_len
-    if context.size(1) < max_len:
-        pad_size = max_len - context.size(1)
-        context = torch.nn.functional.pad(context, (0, pad_size), value=self.pad_token)
-    if target.size(1) < max_len:
-        pad_size = max_len - target.size(1)
-        target = torch.nn.functional.pad(target, (0, pad_size), value=self.pad_token)
-        
-    batch['context_ids'] = context
-    batch['target_ids'] = target
-
-    if 'position_ids' in features[0]:
-      position_ids = [feature['position_ids'] for feature in features]
-      position_ids = pad_sequence(position_ids, batch_first=True, padding_value=0)
-      batch['position_ids'] = position_ids[:, :seq_len]
-
-    if 'bar_ids' in features[0]:
-      bar_ids = [feature['bar_ids'] for feature in features]
-      bar_ids = pad_sequence(bar_ids, batch_first=True, padding_value=0)
-      batch['bar_ids'] = bar_ids[:, :seq_len]
-    
-    if 'codes' in features[0]:
-      codes = [feature['codes'] for feature in features]
-      codes = pad_sequence(codes, batch_first=True, padding_value=0)
-      batch['codes'] = codes[:, :max_desc_len]
-
-    if 'file' in features[0]:
-      batch['files'] = [feature['file'] for feature in features]
+    batch['context_ids'] = context[:, :max_len]  # Ensure we don't exceed max_len
+    batch['target_ids'] = target[:, :max_len]
     
     return batch
 
