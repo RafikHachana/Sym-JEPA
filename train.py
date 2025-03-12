@@ -50,17 +50,21 @@ def main():
 
     args = parser.parse_args()
 
-    # Initialize the Wandb logger with values from .env
-    wandb_logger = WandbLogger(
-        project=os.getenv('WANDB_PROJECT', 'symjepa'),
-        entity=os.getenv('WANDB_ENTITY'),
-        log_model=True
-    )
+    # Initialize logger based on fast_dev_run
+    if args.fast_dev_run:
+        logger = None
+        print("Fast dev run enabled - wandb logging disabled")
+    else:
+        logger = WandbLogger(
+            project=os.getenv('WANDB_PROJECT', 'symjepa'),
+            entity=os.getenv('WANDB_ENTITY'),
+            log_model=True
+        )
 
     # Create the model instance
     model = SymJEPA(num_epochs=args.max_epochs)
 
-    # Prepare the data module with JEPA context ratio
+    # Prepare the data module
     midi_files = glob(os.path.join(args.midi_dir, "**/*.mid"), recursive=True)
     if args.limit:
         midi_files = midi_files[:args.limit]
@@ -79,17 +83,18 @@ def main():
     # Configure the PyTorch Lightning Trainer
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
-        logger=wandb_logger,
-        fast_dev_run=args.fast_dev_run,  # If True, runs 1 batch of train and val
+        logger=logger,
+        fast_dev_run=args.fast_dev_run,
         limit_train_batches=args.limit_batches if args.limit_batches else 1.0,
         limit_val_batches=args.limit_batches if args.limit_batches else 1.0,
     )
 
-    # Log hyperparameters
-    wandb_logger.log_hyperparams({
-        **model.hparams,
-        'jepa_context_ratio': args.jepa_context_ratio
-    })
+    # Log hyperparameters only if not in fast_dev_run mode
+    if not args.fast_dev_run and logger is not None:
+        logger.log_hyperparams({
+            **model.hparams,
+            'jepa_context_ratio': args.jepa_context_ratio
+        })
 
     # Begin training
     trainer.fit(model, data_module)
