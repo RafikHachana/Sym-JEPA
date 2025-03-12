@@ -32,6 +32,8 @@ def main():
                        help="Do a test run with 1 batch for training and validation")
     parser.add_argument("--limit_batches", type=int, default=None,
                        help="Limit number of batches per epoch (for testing)")
+    parser.add_argument("--use_mask_padding", action="store_true",
+                       help="Use MASK tokens instead of PAD tokens for JEPA context/target")
 
     args = parser.parse_args()
 
@@ -53,7 +55,8 @@ def main():
     data_module = MidiDataModule(
         midi_files, 
         max_len=512,
-        jepa_context_ratio=args.jepa_context_ratio
+        jepa_context_ratio=args.jepa_context_ratio,
+        use_mask_padding=args.use_mask_padding
     )
 
     # Configure the PyTorch Lightning Trainer

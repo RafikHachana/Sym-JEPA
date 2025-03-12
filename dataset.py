@@ -12,7 +12,7 @@ import logging
 from input_representation import InputRepresentation
 from vocab import RemiVocab
 from constants import (
-  PAD_TOKEN, BOS_TOKEN, EOS_TOKEN, BAR_KEY, POSITION_KEY,
+  PAD_TOKEN, BOS_TOKEN, EOS_TOKEN, BAR_KEY, POSITION_KEY, MASK_TOKEN
 )
 
 
@@ -27,6 +27,7 @@ class MidiDataModule(pl.LightningDataModule):
                pin_memory=True, 
                train_val_test_split=(0.95, 0.1, 0.05),
                jepa_context_ratio=0.75,
+               use_mask_padding=False,
                **kwargs):
     super().__init__()
     self.batch_size = batch_size
@@ -36,9 +37,8 @@ class MidiDataModule(pl.LightningDataModule):
     self.train_val_test_split = train_val_test_split
     self.max_len = max_len
     self.jepa_context_ratio = jepa_context_ratio
-
+    self.use_mask_padding = use_mask_padding
     self.vocab = RemiVocab()
-
     self.kwargs = kwargs
 
   def setup(self, stage=None):
@@ -60,9 +60,11 @@ class MidiDataModule(pl.LightningDataModule):
     )
 
     self.collator = SeqCollator(
-        pad_token=self.vocab.to_i(PAD_TOKEN), 
+        pad_token=self.vocab.to_i(PAD_TOKEN),
+        mask_token=self.vocab.to_i(MASK_TOKEN),  # Get actual mask token ID from vocab
         context_size=self.max_len,
-        jepa_context_ratio=self.jepa_context_ratio
+        jepa_context_ratio=self.jepa_context_ratio,
+        use_mask_padding=self.use_mask_padding
     )
 
   def train_dataloader(self):
@@ -104,10 +106,12 @@ def _get_split(files, worker_info):
 
 
 class SeqCollator:
-  def __init__(self, pad_token=0, context_size=512, jepa_context_ratio=0.75):
+  def __init__(self, pad_token=0, mask_token=4, context_size=512, jepa_context_ratio=0.75, use_mask_padding=False):
     self.pad_token = pad_token
+    self.mask_token = mask_token
     self.context_size = context_size
     self.jepa_context_ratio = jepa_context_ratio
+    self.use_mask_padding = use_mask_padding
 
   def __call__(self, features):
     batch = {}
@@ -180,7 +184,8 @@ class MidiDataset(torch.utils.data.Dataset):
                bar_token_mask=None,
                bar_token_idx=2,
                use_cache=True,
-               print_errors=True):
+               print_errors=True,
+               use_mask_padding=False):
     self.files = midi_files
     self.group_bars = group_bars
     self.max_len = max_len
@@ -190,6 +195,7 @@ class MidiDataset(torch.utils.data.Dataset):
     self.max_contexts_per_file = max_contexts_per_file
     self.use_cache = use_cache
     self.print_errors = print_errors
+    self.use_mask_padding = use_mask_padding
 
     self.vocab = RemiVocab()
 
