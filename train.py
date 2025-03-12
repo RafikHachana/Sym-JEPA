@@ -28,6 +28,11 @@ def main():
                        help="Ratio of sequence length to use as context (default: 0.75)")
     parser.add_argument("--limit", type=int, default=None,
                        help="Limit the number of files to load")
+    parser.add_argument("--fast_dev_run", action="store_true",
+                       help="Do a test run with 1 batch for training and validation")
+    parser.add_argument("--limit_batches", type=int, default=None,
+                       help="Limit number of batches per epoch (for testing)")
+
     args = parser.parse_args()
 
     # Initialize the Wandb logger with values from .env
@@ -55,9 +60,12 @@ def main():
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
         logger=wandb_logger,
+        fast_dev_run=args.fast_dev_run,  # If True, runs 1 batch of train and val
+        limit_train_batches=args.limit_batches if args.limit_batches else 1.0,
+        limit_val_batches=args.limit_batches if args.limit_batches else 1.0,
     )
 
-    # Log hyperparameters including JEPA context ratio
+    # Log hyperparameters
     wandb_logger.log_hyperparams({
         **model.hparams,
         'jepa_context_ratio': args.jepa_context_ratio
