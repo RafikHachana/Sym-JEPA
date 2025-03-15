@@ -7,6 +7,7 @@ from vocab import RemiVocab
 from constants import PAD_TOKEN
 from transformers import BertConfig, BertModel
 from copy import deepcopy
+import torch.nn.functional as F
 
 class SymJEPA(pl.LightningModule):
   def __init__(self,
@@ -125,25 +126,53 @@ class SymJEPA(pl.LightningModule):
   
   def validation_step(self, batch, batch_idx):
     loss = self.get_loss(batch)
-    self.log('valid_loss', loss.detach(), on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-
-    # Get encoder outputs for norm calculation
+    
+    # Get encoder outputs
     context_emb = self.remi_in(batch['context_ids'])
     context_out = self.context_encoder(inputs_embeds=context_emb, output_hidden_states=True)
-    context_hidden = context_out.hidden_states[-1]
+    context_hidden = context_out.hidden_states[-1]  # [batch_size, seq_len, hidden_dim]
     
     with torch.no_grad():
         target_emb = self.remi_in(batch['target_ids'])
         target_out = self.target_encoder(inputs_embeds=target_emb, output_hidden_states=True)
         target_hidden = target_out.hidden_states[-1]
         
-        # Calculate mean norms
+        # Calculate representation collapse metrics
+        
+        # 1. Cosine similarity (higher value indicates more collapse)
+        cos_sim = F.cosine_similarity(
+            context_hidden.view(-1, context_hidden.size(-1)),
+            target_hidden.view(-1, target_hidden.size(-1)),
+            dim=1
+        ).mean()
+        
+        # 2. Mean squared difference of normalized representations (lower value indicates more collapse)
+        context_norm = F.normalize(context_hidden, p=2, dim=-1)
+        target_norm = F.normalize(target_hidden, p=2, dim=-1)
+        mse_diff = torch.mean((context_norm - target_norm) ** 2)
+        
+        # 3. Variance of representations across batch
+        # Reshape to [batch_size * seq_len, hidden_dim]
+        context_flat = context_hidden.view(-1, context_hidden.size(-1))
+        target_flat = target_hidden.view(-1, target_hidden.size(-1))
+        
+        # Calculate variance for each feature across batch
+        context_var = torch.var(context_flat, dim=0).mean()  # Mean variance across features
+        target_var = torch.var(target_flat, dim=0).mean()
+        
+        # Log all metrics
+        self.log('val_cosine_similarity', cos_sim, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+        self.log('val_mse_diff', mse_diff, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+        self.log('val_context_variance', context_var, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+        self.log('val_target_variance', target_var, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+        
+        # Also log the original norms
         context_norm = torch.norm(context_hidden, dim=-1).mean()
         target_norm = torch.norm(target_hidden, dim=-1).mean()
-        
-        # Log the norms
         self.log('val_context_encoder_norm', context_norm, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
         self.log('val_target_encoder_norm', target_norm, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+    
+    self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
     return loss
   
   def test_step(self, batch, batch_idx):
