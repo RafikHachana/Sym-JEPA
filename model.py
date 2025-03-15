@@ -25,8 +25,16 @@ class SymJEPA(pl.LightningModule):
                ema=(0.996, 0.999),
                ipe=1000,
                ipe_scale=1,
-               num_epochs=1):
-    super(SymJEPA, self).__init__()
+               num_epochs=100,
+               learning_rate=1e-4,
+               momentum_start=0.996,
+               momentum_end=1.0,
+               use_vicreg=False,
+               vicreg_sim_weight=25.0,
+               vicreg_var_weight=25.0,
+               vicreg_cov_weight=1.0,
+               **kwargs):
+    super().__init__()
 
     self.description_options = description_options
 
@@ -75,6 +83,20 @@ class SymJEPA(pl.LightningModule):
         
     self.save_hyperparameters()
 
+    self.num_epochs = num_epochs
+    self.learning_rate = learning_rate
+    self.momentum_start = momentum_start
+    self.momentum_end = momentum_end
+    self.use_vicreg = use_vicreg
+    self.vicreg_sim_weight = vicreg_sim_weight
+    self.vicreg_var_weight = vicreg_var_weight
+    self.vicreg_cov_weight = vicreg_cov_weight
+
+    # Enable gradient checkpointing for memory efficiency
+    self.context_encoder.config.gradient_checkpointing = True
+    self.target_encoder.config.gradient_checkpointing = True
+    self.predictor.config.gradient_checkpointing = True
+
   def get_datamodule(self, midi_files, **kwargs):
     return MidiDataModule(
       midi_files, 
@@ -86,7 +108,7 @@ class SymJEPA(pl.LightningModule):
       **kwargs
     )
 
-  def forward(self, context_ids, target_ids=None):
+  def forward(self, context_ids, target_ids=None, return_context_encoder_hidden=False):
     context_emb = self.remi_in(context_ids)
     out = self.context_encoder(inputs_embeds=context_emb, output_hidden_states=True)
     encoder_hidden = out.hidden_states[-1]
@@ -99,16 +121,64 @@ class SymJEPA(pl.LightningModule):
         out = self.target_encoder(inputs_embeds=target_emb, output_hidden_states=True)
         target_encoder_hidden = out.last_hidden_state
 
-      return pred_hidden, target_encoder_hidden
-    return encoder_hidden
+      return pred_hidden, target_encoder_hidden, encoder_hidden
+    return pred_hidden
     
+  def vicreg_loss(self, context_hidden, target_hidden):
+    # Reshape to [batch_size * seq_len, hidden_dim]
+    x = context_hidden.view(-1, context_hidden.size(-1))
+    y = target_hidden.view(-1, target_hidden.size(-1))
+    
+    # Invariance loss (similarity)
+    sim_loss = F.mse_loss(x, y)
+    
+    # Variance loss
+    std_x = torch.sqrt(x.var(dim=0) + 0.0001)
+    std_y = torch.sqrt(y.var(dim=0) + 0.0001)
+    var_loss = torch.mean(F.relu(1 - std_x)) + torch.mean(F.relu(1 - std_y))
+    
+    # Covariance loss
+    x = x - x.mean(dim=0)
+    y = y - y.mean(dim=0)
+    
+    cov_x = (x.T @ x) / (x.shape[0] - 1)
+    cov_y = (y.T @ y) / (y.shape[0] - 1)
+    
+    # Zero out diagonal elements
+    diag_mask = ~torch.eye(cov_x.shape[0], dtype=torch.bool, device=cov_x.device)
+    cov_loss = (cov_x[diag_mask]**2).mean() + (cov_y[diag_mask]**2).mean()
+    
+    # Combine losses with weights
+    total_loss = (
+        self.vicreg_sim_weight * sim_loss + 
+        self.vicreg_var_weight * var_loss + 
+        self.vicreg_cov_weight * cov_loss
+    )
+    
+    return total_loss, sim_loss, var_loss, cov_loss
+
   def get_loss(self, batch):
-    pred, target = self(batch['context_ids'], batch['target_ids'])
+    pred, target, context_hidden = self(batch['context_ids'], batch['target_ids'], return_context_encoder_hidden=True)
     
-    # Compute loss with the tensor outputs
-    loss = self.loss_fn(pred, target)
+    # Original JEPA loss
+    jepa_loss = self.loss_fn(pred, target)
     
-    return loss
+    if self.use_vicreg:
+      vicreg_total, vic_sim, vic_var, vic_cov = self.vicreg_loss(context_hidden, target)
+      
+      # Log VicReg components
+      self.log('train_vicreg_sim', vic_sim, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+      self.log('train_vicreg_var', vic_var, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+      self.log('train_vicreg_cov', vic_cov, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+      
+      # Combine losses
+      total_loss = jepa_loss + vicreg_total
+      self.log('train_jepa_loss', jepa_loss, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+      self.log('train_vicreg_loss', vicreg_total, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+      
+      return total_loss
+    
+    return jepa_loss
   
   def training_step(self, batch, batch_idx):
     loss = self.get_loss(batch)

@@ -47,6 +47,14 @@ def main():
     parser.add_argument("--num_segments", type=int,
                        default=3,
                        help="Number of segments to mask in segments mode")
+    parser.add_argument("--use_vicreg", action="store_true",
+                       help="Use VicReg loss in addition to JEPA loss")
+    parser.add_argument("--vicreg_sim_weight", type=float, default=25.0,
+                       help="Weight for VicReg similarity loss")
+    parser.add_argument("--vicreg_var_weight", type=float, default=25.0,
+                       help="Weight for VicReg variance loss")
+    parser.add_argument("--vicreg_cov_weight", type=float, default=1.0,
+                       help="Weight for VicReg covariance loss")
 
     args = parser.parse_args()
 
@@ -62,7 +70,13 @@ def main():
         )
 
     # Create the model instance
-    model = SymJEPA(num_epochs=args.max_epochs)
+    model = SymJEPA(
+        num_epochs=args.max_epochs,
+        use_vicreg=args.use_vicreg,
+        vicreg_sim_weight=args.vicreg_sim_weight,
+        vicreg_var_weight=args.vicreg_var_weight,
+        vicreg_cov_weight=args.vicreg_cov_weight
+    )
 
     # Prepare the data module
     midi_files = glob(os.path.join(args.midi_dir, "**/*.mid"), recursive=True)
