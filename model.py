@@ -23,8 +23,6 @@ class SymJEPA(pl.LightningModule):
                num_attention_heads=8,
                description_options=None,
                ema=(0.996, 0.999),
-               ipe=1000,
-               ipe_scale=1,
                num_epochs=100,
                learning_rate=1e-4,
                momentum_start=0.996,
@@ -79,9 +77,9 @@ class SymJEPA(pl.LightningModule):
     
     self.loss_fn = nn.SmoothL1Loss()
 
-    self.momentum_scheduler = (ema[0] + i*(ema[1]-ema[0])/(ipe*num_epochs*ipe_scale)
-                          for i in range(int(ipe*num_epochs*ipe_scale)+1))
-        
+    # Store just the EMA parameters
+    self.ema = ema
+
     self.save_hyperparameters()
 
     self.num_epochs = num_epochs
@@ -167,6 +165,14 @@ class SymJEPA(pl.LightningModule):
     
     if self.use_vicreg:
       vicreg_total, vic_sim, vic_var, vic_cov = self.vicreg_loss(context_hidden, target)
+
+      # Dynamic loss weighting
+      with torch.no_grad():
+          loss_ratio = vicreg_total / jepa_loss
+          scale = self.vicreg_loss_ratio / loss_ratio if loss_ratio > self.vicreg_loss_ratio else 1.0
+          
+      # Apply dynamic scaling
+      vicreg_total = vicreg_total * scale
       
       # Log VicReg components
       self.log('train_vicreg_sim', vic_sim, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
@@ -187,11 +193,19 @@ class SymJEPA(pl.LightningModule):
 
     # Update the target parameters
     with torch.no_grad():
-      m = next(self.momentum_scheduler)
-      for param_q, param_k in zip(self.context_encoder.parameters(), self.target_encoder.parameters()):
-          param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
+        # Get total batches per epoch from trainer
+        total_batches = len(self.trainer.train_dataloader)
+        total_steps = total_batches * self.num_epochs
+        current_step = self.current_epoch * total_batches + batch_idx
+        
+        # Linear interpolation between ema[0] and ema[1]
+        m = self.ema[0] + (self.ema[1] - self.ema[0]) * (current_step / total_steps)
+        m = min(m, self.ema[1])  # Ensure we don't exceed the maximum value
+        
+        for param_q, param_k in zip(self.context_encoder.parameters(), self.target_encoder.parameters()):
+            param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
 
-      self.log('target_momentum', m, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
+        self.log('target_momentum', m, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
     self.log('train_loss', loss.detach(), on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
 
     return loss
