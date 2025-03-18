@@ -33,6 +33,7 @@ class SymJEPA(pl.LightningModule):
                vicreg_sim_weight=25.0,
                vicreg_var_weight=25.0,
                vicreg_cov_weight=1.0,
+               vicreg_loss_ratio=0.3,
                **kwargs):
     super().__init__()
 
@@ -91,6 +92,7 @@ class SymJEPA(pl.LightningModule):
     self.vicreg_sim_weight = vicreg_sim_weight
     self.vicreg_var_weight = vicreg_var_weight
     self.vicreg_cov_weight = vicreg_cov_weight
+    self.vicreg_loss_ratio = vicreg_loss_ratio
 
     # Enable gradient checkpointing for memory efficiency
     self.context_encoder.config.gradient_checkpointing = True

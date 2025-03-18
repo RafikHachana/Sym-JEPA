@@ -5,6 +5,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 from dotenv import load_dotenv
 import torch
+import wandb
 
 # Enable better Tensor Core utilization on NVIDIA GPUs
 torch.set_float32_matmul_precision('high')
@@ -55,6 +56,8 @@ def main():
                        help="Weight for VicReg variance loss")
     parser.add_argument("--vicreg_cov_weight", type=float, default=1.0,
                        help="Weight for VicReg covariance loss")
+    parser.add_argument("--vicreg_loss_ratio", type=float, default=0.3,
+                       help="Target ratio of VICReg loss to JEPA loss (default: 0.3)")
 
     args = parser.parse_args()
 
@@ -75,7 +78,8 @@ def main():
         use_vicreg=args.use_vicreg,
         vicreg_sim_weight=args.vicreg_sim_weight,
         vicreg_var_weight=args.vicreg_var_weight,
-        vicreg_cov_weight=args.vicreg_cov_weight
+        vicreg_cov_weight=args.vicreg_cov_weight,
+        vicreg_loss_ratio=args.vicreg_loss_ratio
     )
 
     # Prepare the data module
