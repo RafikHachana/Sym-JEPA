@@ -209,6 +209,10 @@ class SymJEPA(pl.LightningModule):
     self.log('target_encoder_grad_sum', target_grad_sum, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
     self.log('context_encoder_grad_sum', context_grad_sum, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 
+    # Log current learning rate
+    current_lr = self.optimizers().param_groups[0]['lr']
+    self.log('learning_rate', current_lr, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+
     # Update the target parameters
     with torch.no_grad():
         # Get total batches per epoch from trainer
