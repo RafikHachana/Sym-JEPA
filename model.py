@@ -191,6 +191,24 @@ class SymJEPA(pl.LightningModule):
   def training_step(self, batch, batch_idx):
     loss = self.get_loss(batch)
 
+    # Log gradients for both encoders
+    target_grad_sum = 0
+    context_grad_sum = 0
+    
+    # Sum target encoder gradients (should be zero)
+    for param in self.target_encoder.parameters():
+        if param.grad is not None:
+            target_grad_sum += param.grad.abs().sum()
+            
+    # Sum context encoder gradients (should be non-zero)
+    for param in self.context_encoder.parameters():
+        if param.grad is not None:
+            context_grad_sum += param.grad.abs().sum()
+            
+    # Log both gradient sums
+    self.log('target_encoder_grad_sum', target_grad_sum, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+    self.log('context_encoder_grad_sum', context_grad_sum, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+
     # Update the target parameters
     with torch.no_grad():
         # Get total batches per epoch from trainer
