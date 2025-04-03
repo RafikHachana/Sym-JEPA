@@ -11,15 +11,14 @@ import torch.nn.functional as F
 
 class SymJEPA(pl.LightningModule):
   def __init__(self,
-               d_model=256,
-               d_latent=256,
+               d_model=512,
                context_size=512,
                tokenization='remi',
                lr=1e-4,
-               lr_schedule='sqrt_decay',
+               lr_schedule='linear',
                warmup_steps=100,
                max_steps=None,
-               encoder_layers=6,
+               encoder_layers=8,
                intermediate_size=2048,
                num_attention_heads=8,
                description_options=None,
@@ -54,7 +53,6 @@ class SymJEPA(pl.LightningModule):
 
     self.context_size = context_size
     self.d_model = d_model
-    self.d_latent = d_latent
 
     self.lr = lr
     self.lr_schedule = lr_schedule
@@ -109,9 +107,9 @@ class SymJEPA(pl.LightningModule):
       max_positions=self.max_positions,
       description_options=self.description_options,
       **kwargs
-    )
+    )    
 
-  def forward(self, context_ids, target_ids=None, return_context_encoder_hidden=False):
+  def forward(self, context_ids, target_ids=None, return_context_encoder_hidden=False, context_mask=None, target_mask=None):
     if self.tokenization == 'remi':
         context_emb = self.remi_in(context_ids)
     else:  # octuple
@@ -126,9 +124,11 @@ class SymJEPA(pl.LightningModule):
         context_emb = self.octuple_downsampling(x)
         context_emb = self.octuple_layer_norm(context_emb)
         context_emb = self.octuple_dropout(context_emb)
-
     out = self.context_encoder(inputs_embeds=context_emb, output_hidden_states=True)
     encoder_hidden = out.hidden_states[-1]
+
+    if context_mask is not None:
+      encoder_hidden[context_mask] = 0
 
     if target_ids is not None:
         pred = self.predictor(inputs_embeds=encoder_hidden, output_hidden_states=True)
@@ -148,7 +148,10 @@ class SymJEPA(pl.LightningModule):
             out = self.target_encoder(inputs_embeds=target_emb, output_hidden_states=True)
             target_encoder_hidden = out.last_hidden_state
 
-        return pred_hidden, target_encoder_hidden, encoder_hidden
+      if target_mask is not None:
+        target_encoder_hidden[target_mask] = 0
+
+      return pred_hidden, target_encoder_hidden, encoder_hidden
     return pred_hidden
     
   def vicreg_loss(self, context_hidden, target_hidden):
@@ -185,7 +188,12 @@ class SymJEPA(pl.LightningModule):
     return total_loss, sim_loss, var_loss, cov_loss
 
   def get_loss(self, batch):
-    pred, target, context_hidden = self(batch['context_ids'], batch['target_ids'], return_context_encoder_hidden=True)
+    pred, target, context_hidden = self(
+      batch['context_ids'],
+      batch['target_ids'],
+      return_context_encoder_hidden=True,
+      context_mask=batch.get('context_mask'),
+      target_mask=batch.get('target_mask'))
     
     # Original JEPA loss
     jepa_loss = self.loss_fn(pred, target)

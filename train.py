@@ -18,6 +18,7 @@ def add_model_specific_args(parent_parser):
     parser.add_argument('--tokenization', type=str, default='remi',
                       choices=['remi', 'octuple'],
                       help='Tokenization method to use (remi or octuple)')
+
     parser.add_argument("--jepa_context_ratio", type=float,
                        default=float(os.getenv('JEPA_CONTEXT_RATIO', 0.75)),
                        help="Ratio of sequence length to use as context (default: 0.75)")
