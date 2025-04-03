@@ -10,7 +10,7 @@ from glob import glob
 import logging
 import numpy as np
 
-from input_representation import InputRepresentation
+from input_representation import RemiTokenizer
 from vocab import RemiVocab
 from constants import (
   PAD_TOKEN, BOS_TOKEN, EOS_TOKEN, BAR_KEY, POSITION_KEY, MASK_TOKEN
@@ -259,7 +259,7 @@ class MidiDataset(torch.utils.data.Dataset):
     self.bar_token_idx = bar_token_idx
 
     if CACHE_PATH:
-      self.cache_path = os.path.join(CACHE_PATH, InputRepresentation.version())
+      self.cache_path = os.path.join(CACHE_PATH, RemiTokenizer.version())
       os.makedirs(self.cache_path, exist_ok=True)
     else:
       self.cache_path = None

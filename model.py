@@ -37,6 +37,7 @@ class SymJEPA(pl.LightningModule):
 
     self.tokenization = tokenization
     self.vocab = RemiVocab()
+    self.d_model = d_model
     
     # Initialize embeddings based on tokenization method
     if tokenization == 'remi':
@@ -52,7 +53,6 @@ class SymJEPA(pl.LightningModule):
     self.description_options = description_options
 
     self.context_size = context_size
-    self.d_model = d_model
 
     self.lr = lr
     self.lr_schedule = lr_schedule
@@ -148,10 +148,10 @@ class SymJEPA(pl.LightningModule):
             out = self.target_encoder(inputs_embeds=target_emb, output_hidden_states=True)
             target_encoder_hidden = out.last_hidden_state
 
-      if target_mask is not None:
-        target_encoder_hidden[target_mask] = 0
+        if target_mask is not None:
+            target_encoder_hidden[target_mask] = 0
 
-      return pred_hidden, target_encoder_hidden, encoder_hidden
+        return pred_hidden, target_encoder_hidden, encoder_hidden
     return pred_hidden
     
   def vicreg_loss(self, context_hidden, target_hidden):

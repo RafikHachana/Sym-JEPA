@@ -61,7 +61,7 @@ class Event(object):
 
 class RemiTokenizer(TokenizerBase):
   def version():
-    return 'v4'
+    return 'v5'
   
   def __init__(self, file, do_extract_chords=True, strict=False):
     super().__init__(file)
