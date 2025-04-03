@@ -22,7 +22,7 @@ def main():
                        default=os.getenv('MIDI_DIR', './dataset'),
                        help="Directory containing MIDI files")
     parser.add_argument("--max_epochs", type=int,
-                       default=int(os.getenv('MAX_EPOCHS', 100)),
+                       default=int(os.getenv('MAX_EPOCHS', 7)),
                        help="Number of training epochs")
     parser.add_argument("--jepa_context_ratio", type=float,
                        default=float(os.getenv('JEPA_CONTEXT_RATIO', 0.75)),

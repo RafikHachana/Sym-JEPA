@@ -191,6 +191,9 @@ class SeqCollator:
       # Apply masks
       context[masks] = self.mask_token  # Mask target tokens in context
       target[~masks] = self.mask_token  # Mask context tokens in target
+
+      batch['context_mask'] = masks
+      batch['target_mask'] = ~masks
       
     else:
       # Original padding method
@@ -208,6 +211,8 @@ class SeqCollator:
 
     batch['context_ids'] = context[:, :max_len]  # Ensure we don't exceed max_len
     batch['target_ids'] = target[:, :max_len]
+
+    
     
     return batch
 
@@ -292,9 +297,9 @@ class MidiDataset(torch.utils.data.Dataset):
           if self.max_len > 0:
             starts = list(range(0, len(event_ids), self.max_len+1))
             if len(starts) > 1:
-              contexts = [(start, start + self.max_len+1) for start in starts[:-1]] + [(len(event_ids) - (self.max_len+1), len(event_ids))]
+              contexts = [(start, start + self.max_len) for start in starts[:-1]] + [(len(event_ids) - self.max_len, len(event_ids))]
             elif len(starts) > 0:
-              contexts = [(starts[0], self.max_len+1)]
+              contexts = [(starts[0], self.max_len)]
           else:
             contexts = [(0, len(event_ids))]
 
