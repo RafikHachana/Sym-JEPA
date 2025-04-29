@@ -9,6 +9,7 @@ import argparse
 from glob import glob
 import logging
 import numpy as np
+import traceback
 
 from input_representation import RemiTokenizer
 from vocab import RemiVocab
@@ -69,14 +70,21 @@ class MidiDataModule(pl.LightningDataModule):
     test_files = self.files[:n_test]
 
     self.train_ds = MidiDataset(train_files, self.max_len, 
+      tokenizer_class=self.tokenizer_class,
       **self.kwargs
     )
     self.valid_ds = MidiDataset(valid_files, self.max_len, 
+      tokenizer_class=self.tokenizer_class,
       **self.kwargs
     )
     self.test_ds = MidiDataset(test_files, self.max_len, 
+      tokenizer_class=self.tokenizer_class,
       **self.kwargs
     )
+
+    print(f"Train dataset size: {len(self.train_ds)}")
+    print(f"Valid dataset size: {len(self.valid_ds)}")
+    print(f"Test dataset size: {len(self.test_ds)}")
 
     self.collator = SeqCollator(
         pad_token=self.vocab.to_i(PAD_TOKEN),
@@ -240,6 +248,7 @@ class MidiDataset(torch.utils.data.Dataset):
                bar_token_idx=2,
                use_cache=True,
                print_errors=True,
+               tokenizer_class=RemiTokenizer,
                use_mask_padding=False):
     self.files = midi_files
     self.group_bars = group_bars
@@ -252,6 +261,8 @@ class MidiDataset(torch.utils.data.Dataset):
     self.print_errors = print_errors
     self.use_mask_padding = use_mask_padding
     self.tokenization = tokenization
+
+    self.tokenizer_class = tokenizer_class
 
     self.vocab = RemiVocab()
 
@@ -340,6 +351,7 @@ class MidiDataset(torch.utils.data.Dataset):
           })
 
       except ValueError as err:
+        # traceback.print_exc()
         if self.print_errors:
           print(f"Error loading file {file}: {err}")       
         continue
