@@ -14,7 +14,7 @@ class TokenizerBase(ABC):
         """Return list of events representing the MIDI file"""
         pass
     
-    @abstractmethod
-    def events_to_midi(self, events):
-        """Convert events back to MIDI"""
-        pass 
+    # @abstractmethod
+    # def events_to_midi(self, events):
+    #     """Convert events back to MIDI"""
+    #     pass 

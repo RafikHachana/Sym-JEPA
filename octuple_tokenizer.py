@@ -3,6 +3,8 @@ from constants import *
 import numpy as np
 import pretty_midi
 
+
+OCTUPLE_POS_RESOLUTION = 16
 class OctupleTokenizer(TokenizerBase):
     def version():
         return 'octuple_v1'

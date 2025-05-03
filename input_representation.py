@@ -284,7 +284,7 @@ class RemiTokenizer(TokenizerBase):
     return round(tick / self.pm.resolution * DEFAULT_POS_PER_QUARTER)
 
   # item to event
-  def get_remi_events(self):
+  def get_events(self):
     events = []
     n_downbeat = 0
     current_chord = None

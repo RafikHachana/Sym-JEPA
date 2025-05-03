@@ -81,21 +81,16 @@ def main():
             log_model=True
         )
 
-    # Create the model instance
-    model = SymJEPA(
-        num_epochs=args.max_epochs,
-        use_vicreg=args.use_vicreg,
-        vicreg_sim_weight=args.vicreg_sim_weight,
-        vicreg_var_weight=args.vicreg_var_weight,
-        vicreg_cov_weight=args.vicreg_cov_weight,
-        vicreg_loss_ratio=args.vicreg_loss_ratio
-    )
+   
 
     # Prepare the data module
     midi_files = glob(os.path.join(args.midi_dir, "**/*.mid"), recursive=True)
+    print(f"Found {len(midi_files)} MIDI files")
     if args.limit:
         midi_files = midi_files[:args.limit]
         print(f"Limiting to {args.limit} files")
+
+    
     data_module = MidiDataModule(
         midi_files, 
         max_len=512,
@@ -107,6 +102,23 @@ def main():
         num_segments=args.num_segments,
         tokenization=args.tokenization
     )
+
+    data_module.setup()
+
+
+    # Create the model instance
+    model = SymJEPA(
+        num_epochs=args.max_epochs,
+        use_vicreg=args.use_vicreg,
+        vicreg_sim_weight=args.vicreg_sim_weight,
+        vicreg_var_weight=args.vicreg_var_weight,
+        vicreg_cov_weight=args.vicreg_cov_weight,
+        vicreg_loss_ratio=args.vicreg_loss_ratio,
+        lr_schedule='linear',
+        max_steps=len(data_module.train_dataloader()) * args.max_epochs
+    )
+
+    
 
     # Configure the PyTorch Lightning Trainer
     trainer = pl.Trainer(
