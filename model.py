@@ -13,6 +13,7 @@ class SymJEPA(pl.LightningModule):
   def __init__(self,
                d_model=512,
                context_size=512,
+               tokenization='remi',
                lr=1e-4,
                lr_schedule='linear',
                warmup_steps=100,
@@ -34,45 +35,33 @@ class SymJEPA(pl.LightningModule):
                **kwargs):
     super().__init__()
 
+    self.tokenization = tokenization
+    self.vocab = RemiVocab()
+    self.d_model = d_model
+    
+    # Initialize embeddings based on tokenization method
+    if tokenization == 'remi':
+        self.remi_in = nn.Embedding(len(self.vocab), self.d_model)
+    elif tokenization == 'octuple':
+        self.octuple_in = nn.Embedding(len(self.vocab), self.d_model)
+        self.octuple_downsampling = nn.Linear(d_model * 8, d_model)
+        self.octuple_layer_norm = nn.LayerNorm(d_model)
+        self.octuple_dropout = nn.Dropout(0.1)
+    else:
+        raise ValueError(f"Unknown tokenization method: {tokenization}")
+
     self.description_options = description_options
 
-
-
     self.context_size = context_size
-    self.d_model = d_model
 
     self.lr = lr
     self.lr_schedule = lr_schedule
     self.warmup_steps = warmup_steps
     self.max_steps = max_steps
     
-    self.vocab = RemiVocab()
-
-    encoder_config = BertConfig(
-      vocab_size=1,
-      pad_token_id=0,
-      hidden_size=self.d_model,
-      num_hidden_layers=encoder_layers,
-      num_attention_heads=num_attention_heads,
-      intermediate_size=intermediate_size,
-      max_position_embeddings=1024,
-      position_embedding_type='relative_key_query'
-    )
-    
-
-    # Initialize only the encoder
-    self.context_encoder = BertModel(encoder_config)
-
-    self.target_encoder = deepcopy(self.context_encoder)
-
-    self.predictor = BertModel(encoder_config)
-
-
     self.max_bars = self.context_size
     self.max_positions = 512
 
-    self.remi_in = nn.Embedding(len(self.vocab), self.d_model)
-    
     self.loss_fn = nn.SmoothL1Loss()
 
     # Store just the EMA parameters
@@ -91,9 +80,23 @@ class SymJEPA(pl.LightningModule):
     self.vicreg_loss_ratio = vicreg_loss_ratio
 
     # Enable gradient checkpointing for memory efficiency
-    self.context_encoder.config.gradient_checkpointing = True
-    self.target_encoder.config.gradient_checkpointing = True
-    self.predictor.config.gradient_checkpointing = True
+    encoder_config = BertConfig(
+      vocab_size=1,
+      pad_token_id=0,
+      hidden_size=self.d_model,
+      num_hidden_layers=encoder_layers,
+      num_attention_heads=num_attention_heads,
+      intermediate_size=intermediate_size,
+      max_position_embeddings=1024,
+      position_embedding_type='relative_key_query'
+    )
+    
+    # Initialize only the encoder
+    self.context_encoder = BertModel(encoder_config)
+
+    self.target_encoder = deepcopy(self.context_encoder)
+
+    self.predictor = BertModel(encoder_config)
 
   def get_datamodule(self, midi_files, **kwargs):
     return MidiDataModule(
@@ -104,10 +107,23 @@ class SymJEPA(pl.LightningModule):
       max_positions=self.max_positions,
       description_options=self.description_options,
       **kwargs
-    )
+    )    
 
   def forward(self, context_ids, target_ids=None, return_context_encoder_hidden=False, context_mask=None, target_mask=None):
-    context_emb = self.remi_in(context_ids)
+    if self.tokenization == 'remi':
+        context_emb = self.remi_in(context_ids)
+    else:  # octuple
+        # Embed tokens
+        x = self.octuple_in(context_ids)  # [batch_size, seq_len, d_model]
+        
+        # Reshape to group every 8 tokens
+        batch_size, seq_len, emb_dim = x.shape
+        x = x.view(batch_size, seq_len // 8, 8 * emb_dim)
+        
+        # Project grouped embeddings
+        context_emb = self.octuple_downsampling(x)
+        context_emb = self.octuple_layer_norm(context_emb)
+        context_emb = self.octuple_dropout(context_emb)
     out = self.context_encoder(inputs_embeds=context_emb, output_hidden_states=True)
     encoder_hidden = out.hidden_states[-1]
 
@@ -115,17 +131,27 @@ class SymJEPA(pl.LightningModule):
       encoder_hidden[context_mask] = 0
 
     if target_ids is not None:
-      pred = self.predictor(inputs_embeds=encoder_hidden, output_hidden_states=True)
-      pred_hidden = pred.last_hidden_state
-      with torch.no_grad():
-        target_emb = self.remi_in(target_ids)
-        out = self.target_encoder(inputs_embeds=target_emb, output_hidden_states=True)
-        target_encoder_hidden = out.last_hidden_state
+        pred = self.predictor(inputs_embeds=encoder_hidden, output_hidden_states=True)
+        pred_hidden = pred.last_hidden_state
+        
+        with torch.no_grad():
+            if self.tokenization == 'remi':
+                target_emb = self.remi_in(target_ids)
+            else:  # octuple
+                x = self.octuple_in(target_ids)
+                batch_size, seq_len, emb_dim = x.shape
+                x = x.view(batch_size, seq_len // 8, 8 * emb_dim)
+                target_emb = self.octuple_downsampling(x)
+                target_emb = self.octuple_layer_norm(target_emb)
+                target_emb = self.octuple_dropout(target_emb)
+                
+            out = self.target_encoder(inputs_embeds=target_emb, output_hidden_states=True)
+            target_encoder_hidden = out.last_hidden_state
 
-      if target_mask is not None:
-        target_encoder_hidden[target_mask] = 0
+        if target_mask is not None:
+            target_encoder_hidden[target_mask] = 0
 
-      return pred_hidden, target_encoder_hidden, encoder_hidden
+        return pred_hidden, target_encoder_hidden, encoder_hidden
     return pred_hidden
     
   def vicreg_loss(self, context_hidden, target_hidden):

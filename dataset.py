@@ -10,7 +10,7 @@ from glob import glob
 import logging
 import numpy as np
 
-from input_representation import InputRepresentation
+from input_representation import RemiTokenizer
 from vocab import RemiVocab
 from constants import (
   PAD_TOKEN, BOS_TOKEN, EOS_TOKEN, BAR_KEY, POSITION_KEY, MASK_TOKEN
@@ -33,6 +33,7 @@ class MidiDataModule(pl.LightningDataModule):
                masking_probability=0.25,
                segment_size_ratio=0.1,
                num_segments=3,
+               tokenization='remi',
                **kwargs):
     super().__init__()
     self.batch_size = batch_size
@@ -49,6 +50,15 @@ class MidiDataModule(pl.LightningDataModule):
     self.num_segments = num_segments
     self.vocab = RemiVocab()
     self.kwargs = kwargs
+    self.tokenization = tokenization
+    if tokenization == 'remi':
+        from input_representation import RemiTokenizer
+        self.tokenizer_class = RemiTokenizer
+    elif tokenization == 'octuple':
+        from octuple_tokenizer import OctupleTokenizer
+        self.tokenizer_class = OctupleTokenizer
+    else:
+        raise ValueError(f"Unknown tokenization method: {tokenization}")
 
   def setup(self, stage=None):
     # n_train = int(self.train_val_test_split[0] * len(self.files))
@@ -220,6 +230,7 @@ class MidiDataset(torch.utils.data.Dataset):
   def __init__(self, 
                midi_files, 
                max_len, 
+               tokenization='remi',
                group_bars=False, 
                max_bars=512, 
                max_positions=512,
@@ -240,6 +251,7 @@ class MidiDataset(torch.utils.data.Dataset):
     self.use_cache = use_cache
     self.print_errors = print_errors
     self.use_mask_padding = use_mask_padding
+    self.tokenization = tokenization
 
     self.vocab = RemiVocab()
 
@@ -247,7 +259,7 @@ class MidiDataset(torch.utils.data.Dataset):
     self.bar_token_idx = bar_token_idx
 
     if CACHE_PATH:
-      self.cache_path = os.path.join(CACHE_PATH, InputRepresentation.version())
+      self.cache_path = os.path.join(CACHE_PATH, RemiTokenizer.version())
       os.makedirs(self.cache_path, exist_ok=True)
     else:
       self.cache_path = None
@@ -378,33 +390,30 @@ class MidiDataset(torch.utils.data.Dataset):
     """
     It seems that here we:
       - load the file
-      - returns a dictionary with the REMI tokens
+      - returns a dictionary with the REMI/OctupleMIDI tokens
     """
     name = os.path.basename(file)
     if self.cache_path and self.use_cache:
-      cache_file = os.path.join(self.cache_path, name)
+        cache_file = os.path.join(self.cache_path, f"{self.tokenization}_{name}")
 
     try:
-      # Try to load the file in case it's already in the cache
-      sample = pickle.load(open(cache_file, 'rb'))
+        sample = pickle.load(open(cache_file, 'rb'))
     except Exception:
-      # If there's no cached version, compute the representations
-      try:
-        rep = InputRepresentation(file, strict=True)
-        events = rep.get_remi_events()
-      except Exception as err:
-        raise ValueError(f'Unable to load file {file}') from err
-
-      sample = {
-        'events': events,
-      }
-
-      if self.use_cache:
-        # Try to store the computed representation in the cache directory
         try:
-          pickle.dump(sample, open(cache_file, 'wb'))
+            tokenizer = self.tokenizer_class(file, strict=True)
+            events = tokenizer.get_events()
         except Exception as err:
-          print('Unable to cache file:', str(err))
+            raise ValueError(f'Unable to load file {file}') from err
+
+        sample = {
+            'events': events,
+        }
+
+        if self.use_cache:
+            try:
+                pickle.dump(sample, open(cache_file, 'wb'))
+            except Exception as err:
+                print('Unable to cache file:', str(err))
     
     return sample
   
@@ -416,6 +425,10 @@ if __name__ == "__main__":
 
     parser.add_argument('--limit', type=int, default=None, 
                       help='Limit the number of files to load')
+    
+    parser.add_argument('--tokenization', type=str, default='remi',
+                      choices=['remi', 'octuple'],
+                      help='Tokenization method to use (remi or octuple)')
     
     args = parser.parse_args()
     
@@ -431,7 +444,7 @@ if __name__ == "__main__":
         print("Please make sure the directory exists and contains .mid files.")
         exit(1)
     
-    dm = MidiDataModule(files, max_len=512)
+    dm = MidiDataModule(files, max_len=512, tokenization=args.tokenization)
     dm.setup()
     
     print(f"\nDataset splits:")

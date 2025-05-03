@@ -1,6 +1,7 @@
 from chord_recognition import MIDIChord
 import numpy as np
 import pretty_midi
+from tokenizer_base import TokenizerBase
 
 from vocab import RemiVocab
 
@@ -58,15 +59,12 @@ class Event(object):
     return 'Event(name={}, time={}, value={}, text={})'.format(
       self.name, self.time, self.value, self.text)
 
-class InputRepresentation():
+class RemiTokenizer(TokenizerBase):
   def version():
-    return 'v4'
+    return 'v5'
   
   def __init__(self, file, do_extract_chords=True, strict=False):
-    if isinstance(file, pretty_midi.PrettyMIDI):
-      self.pm = file
-    else:
-      self.pm = pretty_midi.PrettyMIDI(file)
+    super().__init__(file)
 
     if strict and len(self.pm.time_signature_changes) == 0:
       raise ValueError("Invalid MIDI file: No time signature defined")

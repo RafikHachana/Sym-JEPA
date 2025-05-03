@@ -13,17 +13,12 @@ torch.set_float32_matmul_precision('high')
 from model import SymJEPA
 from dataset import MidiDataModule
 
-def main():
-    # Load environment variables from .env file
-    load_dotenv()
+def add_model_specific_args(parent_parser):
+    parser = parent_parser.add_argument_group("model")
+    parser.add_argument('--tokenization', type=str, default='remi',
+                      choices=['remi', 'octuple'],
+                      help='Tokenization method to use (remi or octuple)')
 
-    parser = argparse.ArgumentParser(description="Train Sym-JEPA with Weights & Biases logging")
-    parser.add_argument("--midi_dir", type=str, 
-                       default=os.getenv('MIDI_DIR', './dataset'),
-                       help="Directory containing MIDI files")
-    parser.add_argument("--max_epochs", type=int,
-                       default=int(os.getenv('MAX_EPOCHS', 7)),
-                       help="Number of training epochs")
     parser.add_argument("--jepa_context_ratio", type=float,
                        default=float(os.getenv('JEPA_CONTEXT_RATIO', 0.75)),
                        help="Ratio of sequence length to use as context (default: 0.75)")
@@ -58,6 +53,20 @@ def main():
                        help="Weight for VicReg covariance loss")
     parser.add_argument("--vicreg_loss_ratio", type=float, default=0.3,
                        help="Target ratio of VICReg loss to JEPA loss (default: 0.3)")
+    return parent_parser
+
+def main():
+    # Load environment variables from .env file
+    load_dotenv()
+
+    parser = argparse.ArgumentParser(description="Train Sym-JEPA with Weights & Biases logging")
+    parser = add_model_specific_args(parser)
+    parser.add_argument("--midi_dir", type=str, 
+                       default=os.getenv('MIDI_DIR', './dataset'),
+                       help="Directory containing MIDI files")
+    parser.add_argument("--max_epochs", type=int,
+                       default=int(os.getenv('MAX_EPOCHS', 100)),
+                       help="Number of training epochs")
 
     args = parser.parse_args()
 
@@ -95,7 +104,8 @@ def main():
         masking_mode=args.masking_mode,
         masking_probability=args.masking_probability,
         segment_size_ratio=args.segment_size_ratio,
-        num_segments=args.num_segments
+        num_segments=args.num_segments,
+        tokenization=args.tokenization
     )
 
     # Configure the PyTorch Lightning Trainer
