@@ -35,6 +35,7 @@ class MidiDataModule(pl.LightningDataModule):
                segment_size_ratio=0.1,
                num_segments=3,
                tokenization='remi',
+               genre_map='metadata/genre_map.json',
                **kwargs):
     super().__init__()
     self.batch_size = batch_size
@@ -52,6 +53,7 @@ class MidiDataModule(pl.LightningDataModule):
     self.vocab = RemiVocab()
     self.kwargs = kwargs
     self.tokenization = tokenization
+    self.genre_map = genre_map
     if tokenization == 'remi':
         from input_representation import RemiTokenizer
         self.tokenizer_class = RemiTokenizer
@@ -229,7 +231,7 @@ class SeqCollator:
 
     batch['context_ids'] = context[:, :max_len]  # Ensure we don't exceed max_len
     batch['target_ids'] = target[:, :max_len]
-
+    batch['genre'] = [feature['genre'] for feature in features]
     
     
     return batch
@@ -249,7 +251,8 @@ class MidiDataset(torch.utils.data.Dataset):
                use_cache=True,
                print_errors=True,
                tokenizer_class=RemiTokenizer,
-               use_mask_padding=False):
+               use_mask_padding=False,
+               genre_map_path='metadata/genre_map.json'):
     self.files = midi_files
     self.group_bars = group_bars
     self.max_len = max_len
@@ -263,7 +266,8 @@ class MidiDataset(torch.utils.data.Dataset):
     self.tokenization = tokenization
 
     self.tokenizer_class = tokenizer_class
-
+    with open(genre_map_path, 'r') as f:
+      self.genre_map = json.load(f)
     self.vocab = RemiVocab()
 
     self.bar_token_mask = bar_token_mask
@@ -343,11 +347,14 @@ class MidiDataset(torch.utils.data.Dataset):
           if self.max_len > 0:
             src = src[:self.max_len + 1]
 
+          genre = self.genre_map['topmagd'][os.path.basename(file)]
+
           self.data.append({
             'input_ids': src,
             'file': os.path.basename(file),
             'bar_ids': b_ids,
             'position_ids': p_ids,
+            'genre': genre,
           })
 
       except ValueError as err:
@@ -419,6 +426,7 @@ class MidiDataset(torch.utils.data.Dataset):
 
         sample = {
             'events': events,
+            'file_name': name,
         }
 
         if self.use_cache:
