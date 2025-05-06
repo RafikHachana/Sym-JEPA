@@ -9,8 +9,9 @@ import argparse
 from glob import glob
 import logging
 import numpy as np
+import json
 import traceback
-
+import hashlib
 from input_representation import RemiTokenizer
 from vocab import RemiVocab
 from constants import (
@@ -19,6 +20,9 @@ from constants import (
 
 
 CACHE_PATH = os.getenv('CACHE_PATH', os.getenv('SCRATCH', os.getenv('TMPDIR', './temp')))
+
+def get_md5(file_path):
+  return hashlib.md5(open(file_path, 'rb').read()).hexdigest()
 
 class MidiDataModule(pl.LightningDataModule):
   def __init__(self, 
@@ -35,7 +39,8 @@ class MidiDataModule(pl.LightningDataModule):
                segment_size_ratio=0.1,
                num_segments=3,
                tokenization='remi',
-               genre_map='metadata/genre_map.json',
+               genre_map='metadata/midi_genre_map.json',
+               skip_unknown_genres=False,
                **kwargs):
     super().__init__()
     self.batch_size = batch_size
@@ -54,6 +59,7 @@ class MidiDataModule(pl.LightningDataModule):
     self.kwargs = kwargs
     self.tokenization = tokenization
     self.genre_map = genre_map
+    self.skip_unknown_genres = skip_unknown_genres
     if tokenization == 'remi':
         from input_representation import RemiTokenizer
         self.tokenizer_class = RemiTokenizer
@@ -73,14 +79,17 @@ class MidiDataModule(pl.LightningDataModule):
 
     self.train_ds = MidiDataset(train_files, self.max_len, 
       tokenizer_class=self.tokenizer_class,
+      skip_unknown_genres=self.skip_unknown_genres,
       **self.kwargs
     )
     self.valid_ds = MidiDataset(valid_files, self.max_len, 
       tokenizer_class=self.tokenizer_class,
+      skip_unknown_genres=self.skip_unknown_genres,
       **self.kwargs
     )
     self.test_ds = MidiDataset(test_files, self.max_len, 
       tokenizer_class=self.tokenizer_class,
+      skip_unknown_genres=self.skip_unknown_genres,
       **self.kwargs
     )
 
@@ -231,7 +240,9 @@ class SeqCollator:
 
     batch['context_ids'] = context[:, :max_len]  # Ensure we don't exceed max_len
     batch['target_ids'] = target[:, :max_len]
-    batch['genre'] = [feature['genre'] for feature in features]
+    batch['genre_id'] = torch.tensor([feature['genre_id'] for feature in features], dtype=torch.long)
+    # batch['style_id'] = torch.tensor([feature['style_id'] for feature in features], dtype=torch.long)
+    batch['input_ids'] = xs
     
     
     return batch
@@ -252,7 +263,8 @@ class MidiDataset(torch.utils.data.Dataset):
                print_errors=True,
                tokenizer_class=RemiTokenizer,
                use_mask_padding=False,
-               genre_map_path='metadata/genre_map.json'):
+               genre_map_path='metadata/midi_genre_map.json',
+               skip_unknown_genres=False):
     self.files = midi_files
     self.group_bars = group_bars
     self.max_len = max_len
@@ -264,10 +276,20 @@ class MidiDataset(torch.utils.data.Dataset):
     self.print_errors = print_errors
     self.use_mask_padding = use_mask_padding
     self.tokenization = tokenization
-
+    self.skip_unknown_genres = skip_unknown_genres
     self.tokenizer_class = tokenizer_class
     with open(genre_map_path, 'r') as f:
       self.genre_map = json.load(f)
+
+    self.all_genres = set(sum(self.genre_map['topmagd'].values(), []))
+    self.all_styles = set(sum(self.genre_map['masd'].values(), []))
+
+    self.genre_to_idx = {genre: i for i, genre in enumerate(self.all_genres)}
+    self.idx_to_genre = {i: genre for i, genre in enumerate(self.all_genres)}
+
+    self.style_to_idx = {style: i for i, style in enumerate(self.all_styles)}
+    self.idx_to_style = {i: style for i, style in enumerate(self.all_styles)}
+
     self.vocab = RemiVocab()
 
     self.bar_token_mask = bar_token_mask
@@ -347,14 +369,26 @@ class MidiDataset(torch.utils.data.Dataset):
           if self.max_len > 0:
             src = src[:self.max_len + 1]
 
-          genre = self.genre_map['topmagd'][os.path.basename(file)]
+          file_id = os.path.basename(file).split('.')[0]
 
+          # Check if file_id is a valid MD5 checksum
+          if not len(file_id) == 32 or not all(c in '0123456789abcdef' for c in file_id.lower()):
+            # print(f"WARNING: File ID {file_id} is not a valid MD5 checksum")
+            file_id = get_md5(file)
+
+          genre = self.genre_map['topmagd'].get(file_id, [None])[0]
+          style = self.genre_map['masd'].get(file_id, [None])[0]
+          
+          if genre is None and self.skip_unknown_genres:
+            continue
           self.data.append({
             'input_ids': src,
             'file': os.path.basename(file),
             'bar_ids': b_ids,
+            'file_id': file_id,
             'position_ids': p_ids,
-            'genre': genre,
+            'genre_id': self.genre_to_idx[genre] if genre else None,
+            'style_id': self.style_to_idx[style] if style else None,
           })
 
       except ValueError as err:
