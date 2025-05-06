@@ -80,7 +80,6 @@ def main():
         logger = WandbLogger(
             project=os.getenv('WANDB_PROJECT', 'symjepa'),
             entity=os.getenv('WANDB_ENTITY'),
-            log_model=True
         )
 
    
@@ -129,6 +128,9 @@ def main():
         fast_dev_run=args.fast_dev_run,
         limit_train_batches=args.limit_batches if args.limit_batches else 1.0,
         limit_val_batches=args.limit_batches if args.limit_batches else 1.0,
+        callbacks=[
+            ModelCheckpoint(monitor='val_loss', mode='min', save_top_k=1, save_last=True)
+        ]
     )
 
     # Log hyperparameters only if not in fast_dev_run mode
