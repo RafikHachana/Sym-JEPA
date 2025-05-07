@@ -19,12 +19,12 @@ class SymJEPA(pl.LightningModule):
                warmup_steps=100,
                max_steps=None,
                encoder_layers=8,
+               predictor_layers=8,
                intermediate_size=2048,
                num_attention_heads=8,
                description_options=None,
                ema=(0.996, 0.999),
                num_epochs=100,
-               learning_rate=1e-4,
                momentum_start=0.996,
                momentum_end=1.0,
                use_vicreg=False,
@@ -71,7 +71,6 @@ class SymJEPA(pl.LightningModule):
     self.save_hyperparameters()
 
     self.num_epochs = num_epochs
-    self.learning_rate = learning_rate
     self.momentum_start = momentum_start
     self.momentum_end = momentum_end
     self.use_vicreg = use_vicreg
@@ -91,13 +90,16 @@ class SymJEPA(pl.LightningModule):
       max_position_embeddings=1024,
       position_embedding_type='relative_key_query'
     )
+
+    predictor_config = deepcopy(encoder_config)
+    predictor_config.num_hidden_layers = predictor_layers
     
     # Initialize only the encoder
     self.context_encoder = BertModel(encoder_config)
 
     self.target_encoder = deepcopy(self.context_encoder)
 
-    self.predictor = BertModel(encoder_config)
+    self.predictor = BertModel(predictor_config)
 
   def get_datamodule(self, midi_files, **kwargs):
     return MidiDataModule(

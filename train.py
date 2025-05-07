@@ -6,7 +6,7 @@ from pytorch_lightning.loggers import WandbLogger
 from dotenv import load_dotenv
 import torch
 import wandb
-
+from pytorch_lightning.callbacks import ModelCheckpoint
 # Enable better Tensor Core utilization on NVIDIA GPUs
 torch.set_float32_matmul_precision('high')
 
@@ -141,7 +141,10 @@ def main():
     if not args.fast_dev_run and logger is not None:
         logger.log_hyperparams({
             **model.hparams,
-            'jepa_context_ratio': args.jepa_context_ratio
+            'jepa_context_ratio': args.jepa_context_ratio,
+            'train_dataset_size': len(data_module.train_dataloader().dataset),
+            'val_dataset_size': len(data_module.val_dataloader().dataset),
+            'test_dataset_size': len(data_module.test_dataloader().dataset),
         })
 
     # Begin training
