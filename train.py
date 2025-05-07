@@ -55,6 +55,8 @@ def add_model_specific_args(parent_parser):
                        help="Weight for VicReg covariance loss")
     parser.add_argument("--vicreg_loss_ratio", type=float, default=0.3,
                        help="Target ratio of VICReg loss to JEPA loss (default: 0.3)")
+    parser.add_argument("--pass_target_mask_to_predictor", action="store_true",
+                       help="Pass target mask to predictor")
     return parent_parser
 
 def main():
@@ -117,7 +119,8 @@ def main():
         vicreg_loss_ratio=args.vicreg_loss_ratio,
         lr_schedule='linear',
         max_steps=len(data_module.train_dataloader()) * args.max_epochs,
-        tokenization=args.tokenization
+        tokenization=args.tokenization,
+        pass_target_mask_to_predictor=args.pass_target_mask_to_predictor
     )
 
     

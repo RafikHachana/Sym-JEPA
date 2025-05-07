@@ -32,6 +32,7 @@ class SymJEPA(pl.LightningModule):
                vicreg_var_weight=25.0,
                vicreg_cov_weight=1.0,
                vicreg_loss_ratio=0.3,
+               pass_target_mask_to_predictor=False,
                **kwargs):
     super().__init__()
 
@@ -78,7 +79,7 @@ class SymJEPA(pl.LightningModule):
     self.vicreg_var_weight = vicreg_var_weight
     self.vicreg_cov_weight = vicreg_cov_weight
     self.vicreg_loss_ratio = vicreg_loss_ratio
-
+    self.pass_context_mask_to_predictor = pass_target_mask_to_predictor
     # Enable gradient checkpointing for memory efficiency
     encoder_config = BertConfig(
       vocab_size=1,
@@ -110,6 +111,7 @@ class SymJEPA(pl.LightningModule):
     )    
 
   def forward(self, context_ids, target_ids=None, return_context_encoder_hidden=False, context_mask=None, target_mask=None):
+    # Context and target IDs should be already masked
     if self.tokenization == 'remi':
         context_emb = self.remi_in(context_ids)
     else:  # octuple
@@ -127,12 +129,13 @@ class SymJEPA(pl.LightningModule):
     out = self.context_encoder(inputs_embeds=context_emb, output_hidden_states=True)
     encoder_hidden = out.hidden_states[-1]
 
+    if self.tokenization == 'octuple':
+      context_mask = context_mask[:, ::8]
     if context_mask is not None:
       encoder_hidden[context_mask] = 0
 
     if target_ids is not None:
-        pred = self.predictor(inputs_embeds=encoder_hidden, output_hidden_states=True)
-        pred_hidden = pred.last_hidden_state
+        
         
         with torch.no_grad():
             if self.tokenization == 'remi':
@@ -148,8 +151,17 @@ class SymJEPA(pl.LightningModule):
             out = self.target_encoder(inputs_embeds=target_emb, output_hidden_states=True)
             target_encoder_hidden = out.last_hidden_state
 
-        if target_mask is not None:
-            target_encoder_hidden[target_mask] = 0
+        if self.tokenization == 'octuple':
+            target_mask = target_mask[:, ::8]
+        target_encoder_hidden[target_mask] = 0
+
+
+        if self.pass_target_mask_to_predictor:
+            predictor_input = torch.cat([encoder_hidden, target_mask], dim=1)
+        else:
+            predictor_input = encoder_hidden
+        pred = self.predictor(inputs_embeds=predictor_input, output_hidden_states=True)
+        pred_hidden = pred.last_hidden_state[:, :encoder_hidden.size(1)]
 
         return pred_hidden, target_encoder_hidden, encoder_hidden
     return pred_hidden
