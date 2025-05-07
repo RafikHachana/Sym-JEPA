@@ -116,7 +116,8 @@ def main():
         vicreg_cov_weight=args.vicreg_cov_weight,
         vicreg_loss_ratio=args.vicreg_loss_ratio,
         lr_schedule='linear',
-        max_steps=len(data_module.train_dataloader()) * args.max_epochs
+        max_steps=len(data_module.train_dataloader()) * args.max_epochs,
+        tokenization=args.tokenization
     )
 
     
