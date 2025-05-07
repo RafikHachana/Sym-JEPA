@@ -14,7 +14,32 @@ class TokenizerBase(ABC):
         """Return list of events representing the MIDI file"""
         pass
     
-    # @abstractmethod
-    # def events_to_midi(self, events):
-    #     """Convert events back to MIDI"""
-    #     pass 
+    @staticmethod
+    @abstractmethod
+    def get_vocab():
+        """Return vocabulary for tokenization"""
+        pass
+    
+    @staticmethod
+    @abstractmethod
+    def get_bos_eos_tokens():
+        """Return beginning and end of sequence tokens"""
+        pass
+    
+    @staticmethod
+    @abstractmethod
+    def get_mask_token():
+        """Return mask token"""
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def get_unk_token():
+        """Return unknown token"""
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def get_pad_token():
+        """Return pad token"""
+        pass

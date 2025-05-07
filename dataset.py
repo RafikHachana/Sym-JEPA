@@ -15,7 +15,7 @@ import hashlib
 from input_representation import RemiTokenizer
 from vocab import RemiVocab
 from constants import (
-  PAD_TOKEN, BOS_TOKEN, EOS_TOKEN, BAR_KEY, POSITION_KEY, MASK_TOKEN
+  BAR_KEY, POSITION_KEY
 )
 
 
@@ -55,7 +55,6 @@ class MidiDataModule(pl.LightningDataModule):
     self.masking_probability = masking_probability
     self.segment_size_ratio = segment_size_ratio
     self.num_segments = num_segments
-    self.vocab = RemiVocab()
     self.kwargs = kwargs
     self.tokenization = tokenization
     self.genre_map = genre_map
@@ -68,6 +67,11 @@ class MidiDataModule(pl.LightningDataModule):
         self.tokenizer_class = OctupleTokenizer
     else:
         raise ValueError(f"Unknown tokenization method: {tokenization}")
+    self.vocab = self.tokenizer_class.get_vocab()
+    self.eos_bos_tokens = self.tokenizer_class.get_bos_eos_tokens()
+    self.mask_token = self.tokenizer_class.get_mask_token()
+    self.unk_token = self.tokenizer_class.get_unk_token()
+    self.pad_token = self.tokenizer_class.get_pad_token()
 
   def setup(self, stage=None):
     # n_train = int(self.train_val_test_split[0] * len(self.files))
@@ -78,16 +82,19 @@ class MidiDataModule(pl.LightningDataModule):
     test_files = self.files[:n_test]
 
     self.train_ds = MidiDataset(train_files, self.max_len, 
+      tokenization=self.tokenization,
       tokenizer_class=self.tokenizer_class,
       skip_unknown_genres=self.skip_unknown_genres,
       **self.kwargs
     )
     self.valid_ds = MidiDataset(valid_files, self.max_len, 
+      tokenization=self.tokenization,
       tokenizer_class=self.tokenizer_class,
       skip_unknown_genres=self.skip_unknown_genres,
       **self.kwargs
     )
     self.test_ds = MidiDataset(test_files, self.max_len, 
+      tokenization=self.tokenization,
       tokenizer_class=self.tokenizer_class,
       skip_unknown_genres=self.skip_unknown_genres,
       **self.kwargs
@@ -98,8 +105,8 @@ class MidiDataModule(pl.LightningDataModule):
     print(f"Test dataset size: {len(self.test_ds)}")
 
     self.collator = SeqCollator(
-        pad_token=self.vocab.to_i(PAD_TOKEN),
-        mask_token=self.vocab.to_i(MASK_TOKEN),
+        pad_token=self.vocab.to_i(self.pad_token),
+        mask_token=self.vocab.to_i(self.mask_token),
         context_size=self.max_len,
         jepa_context_ratio=self.jepa_context_ratio,
         use_mask_padding=self.use_mask_padding,
@@ -290,13 +297,13 @@ class MidiDataset(torch.utils.data.Dataset):
     self.style_to_idx = {style: i for i, style in enumerate(self.all_styles)}
     self.idx_to_style = {i: style for i, style in enumerate(self.all_styles)}
 
-    self.vocab = RemiVocab()
+    self.vocab = self.tokenizer_class.get_vocab()
 
     self.bar_token_mask = bar_token_mask
     self.bar_token_idx = bar_token_idx
 
     if CACHE_PATH:
-      self.cache_path = os.path.join(CACHE_PATH, RemiTokenizer.version())
+      self.cache_path = os.path.join(CACHE_PATH, self.tokenizer_class.version())
       os.makedirs(self.cache_path, exist_ok=True)
     else:
       self.cache_path = None
@@ -308,24 +315,26 @@ class MidiDataset(torch.utils.data.Dataset):
         current_file = self.load_file(file)
         events = current_file['events']
 
+
         # Identify start of bars
-        bars, bar_ids = self.get_bars(events, include_ids=True)
-        if len(bars) > self.max_bars:
-          if self.print_errors:
-            print(f"WARNING: REMI sequence has more than {self.max_bars} bars: {len(bars)} event bars.")
-          continue
+        if self.tokenization == 'remi':
+          bars, bar_ids = self.get_bars(events, include_ids=True)
+          if len(bars) > self.max_bars:
+            if self.print_errors:
+              print(f"WARNING: REMI sequence has more than {self.max_bars} bars: {len(bars)} event bars.")
+            continue
 
-        # Identify positions
-        position_ids = self.get_positions(events)
-        max_pos = position_ids.max()
-        if max_pos > self.max_positions:
-          if self.print_errors:
-            print(f"WARNING: REMI sequence has more than {self.max_positions} positions: {max_pos.item()} positions found")
-          continue
+          # Identify positions
+          position_ids = self.get_positions(events)
+          max_pos = position_ids.max()
+          if max_pos > self.max_positions:
+            if self.print_errors:
+              print(f"WARNING: REMI sequence has more than {self.max_positions} positions: {max_pos.item()} positions found")
+            continue
 
-        # Mask bar tokens if required
-        if self.bar_token_mask is not None and self.max_bars_per_context > 0:
-          events = self.mask_bar_tokens(events, bar_token_mask=self.bar_token_mask)
+          # Mask bar tokens if required
+          if self.bar_token_mask is not None and self.max_bars_per_context > 0:
+            events = self.mask_bar_tokens(events, bar_token_mask=self.bar_token_mask)
         
         # Encode tokens with appropriate vocabulary
         event_ids = torch.tensor(self.vocab.encode(events), dtype=torch.long)
@@ -340,8 +349,8 @@ class MidiDataset(torch.utils.data.Dataset):
           contexts = list(zip(starts[:-1], starts[1:])) + [(starts[-1], len(event_ids))]
         else:
           event_ids = torch.cat([bos, event_ids, eos])
-          bar_ids = torch.cat([zero, bar_ids, zero])
-          position_ids = torch.cat([zero, position_ids, zero])
+          # bar_ids = torch.cat([zero, bar_ids, zero])
+          # position_ids = torch.cat([zero, position_ids, zero])
 
           if self.max_len > 0:
             starts = list(range(0, len(event_ids), self.max_len+1))
@@ -359,12 +368,12 @@ class MidiDataset(torch.utils.data.Dataset):
           # Add <bos> and <eos> to each context if contexts are limited to a certain number of bars
           if self.max_bars_per_context and self.max_bars_per_context > 0:
             src = torch.cat([bos, event_ids[start:end], eos])
-            b_ids = torch.cat([zero, bar_ids[start:end], zero])
-            p_ids = torch.cat([zero, position_ids[start:end], zero])
+            # b_ids = torch.cat([zero, bar_ids[start:end], zero])
+            # p_ids = torch.cat([zero, position_ids[start:end], zero])
           else:
             src = event_ids[start:end]
-            b_ids = bar_ids[start:end]
-            p_ids = position_ids[start:end]
+            # b_ids = bar_ids[start:end]
+            # p_ids = position_ids[start:end]
 
           if self.max_len > 0:
             src = src[:self.max_len + 1]
@@ -384,9 +393,9 @@ class MidiDataset(torch.utils.data.Dataset):
           self.data.append({
             'input_ids': src,
             'file': os.path.basename(file),
-            'bar_ids': b_ids,
+            # 'bar_ids': b_ids,
             'file_id': file_id,
-            'position_ids': p_ids,
+            # 'position_ids': p_ids,
             'genre_id': self.genre_to_idx[genre] if genre else None,
             'style_id': self.style_to_idx[style] if style else None,
           })
@@ -434,9 +443,10 @@ class MidiDataset(torch.utils.data.Dataset):
     events = [bar_token_mask if f'{BAR_KEY}_' in token else token for token in events]
     return events
   
-  def get_bos_eos_events(self, tuple_size=8):
-    bos_event = torch.tensor(self.vocab.encode([BOS_TOKEN]), dtype=torch.long)
-    eos_event = torch.tensor(self.vocab.encode([EOS_TOKEN]), dtype=torch.long)
+  def get_bos_eos_events(self):
+    tuple_size = 8 if self.tokenization == 'octuple' else 1
+    bos_event = torch.tensor(self.vocab.encode([self.tokenizer_class.get_bos_eos_tokens()[0]]*tuple_size), dtype=torch.long)
+    eos_event = torch.tensor(self.vocab.encode([self.tokenizer_class.get_bos_eos_tokens()[1]]*tuple_size), dtype=torch.long)
     return bos_event, eos_event
 
   def load_file(self, file):
@@ -456,6 +466,7 @@ class MidiDataset(torch.utils.data.Dataset):
             tokenizer = self.tokenizer_class(file, strict=True)
             events = tokenizer.get_events()
         except Exception as err:
+            # traceback.print_exc()
             raise ValueError(f'Unable to load file {file}') from err
 
         sample = {
@@ -498,7 +509,7 @@ if __name__ == "__main__":
         print("Please make sure the directory exists and contains .mid files.")
         exit(1)
     
-    dm = MidiDataModule(files, max_len=512, tokenization=args.tokenization)
+    dm = MidiDataModule(files, max_len=512, tokenization=args.tokenization, skip_unknown_genres=True)
     dm.setup()
     
     print(f"\nDataset splits:")
@@ -516,4 +527,5 @@ if __name__ == "__main__":
     for batch in dl:
         print(f"\nBatch shape: {batch['input_ids'].shape}")
         print(f"Batch keys: {batch.keys()}")
+        print(batch['input_ids'])
         break

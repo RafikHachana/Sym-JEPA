@@ -21,6 +21,10 @@ from constants import (
   MEAN_PITCH_KEY,
   MEAN_VELOCITY_KEY,
   MEAN_DURATION_KEY,
+  BOS_TOKEN,
+  MASK_TOKEN,
+  UNK_TOKEN,
+  PAD_TOKEN,
   # discretization parameters
   DEFAULT_POS_PER_QUARTER,
   DEFAULT_VELOCITY_BINS,
@@ -403,6 +407,27 @@ class RemiTokenizer(TokenizerBase):
             current_tempo = item
     
     return [f'{e.name}_{e.value}' for e in events]
+  
+  @staticmethod
+  def get_vocab():
+    return RemiVocab()
+  
+  @staticmethod
+  def get_bos_eos_tokens():
+    return [BOS_TOKEN, EOS_TOKEN]
+  
+  @staticmethod
+  def get_mask_token():
+    return MASK_TOKEN
+  
+  @staticmethod
+  def get_unk_token():
+    return UNK_TOKEN
+  
+  @staticmethod
+  def get_pad_token():
+    return PAD_TOKEN
+  
 
 
 #############################################################################################
