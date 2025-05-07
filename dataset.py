@@ -160,7 +160,8 @@ class SeqCollator:
                masking_mode='contiguous',
                masking_probability=0.25,
                segment_size_ratio=0.1,
-               num_segments=3):
+               num_segments=3,
+               tokenization='remi'):
     self.pad_token = pad_token
     self.mask_token = mask_token
     self.context_size = context_size
@@ -170,11 +171,19 @@ class SeqCollator:
     self.masking_probability = masking_probability
     self.segment_size_ratio = segment_size_ratio
     self.num_segments = num_segments
+    self.tokenization = tokenization
 
-  def create_masks(self, seq_length):
+
+    self.mask_step = 1
+    if tokenization == 'octuple':
+      self.mask_step = 8
+
+  def create_masks(self, seq_length, mask_step=1):
+    # IMPORTANT: Only the contiguous masking works with the octuple tokenization
     if self.masking_mode == 'contiguous':
       # Original contiguous masking
-      mask_start = int(seq_length * self.jepa_context_ratio)
+      mask_start = int(seq_length // mask_step * self.jepa_context_ratio) * mask_step
+      assert mask_start % mask_step == 0, f"mask_start {mask_start} is not divisible by mask_step {mask_step}"
       mask = torch.zeros(seq_length, dtype=torch.bool)
       mask[mask_start:] = True
       
@@ -217,7 +226,7 @@ class SeqCollator:
     if self.use_mask_padding:
       batch_size = xs.size(0)
       # Create masks using actual sequence length
-      masks = [self.create_masks(xs.size(1)) for _ in range(batch_size)]
+      masks = [self.create_masks(xs.size(1), mask_step=self.mask_step) for _ in range(batch_size)]
       masks = torch.stack(masks)
       
       # Create masked versions for context and target
