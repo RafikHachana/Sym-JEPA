@@ -256,7 +256,10 @@ class SeqCollator:
 
     batch['context_ids'] = context[:, :max_len]  # Ensure we don't exceed max_len
     batch['target_ids'] = target[:, :max_len]
-    batch['genre_id'] = torch.tensor([feature['genre_id'] for feature in features], dtype=torch.long)
+    if all(feature['genre_id'] is not None for feature in features):
+      batch['genre_id'] = torch.tensor([feature['genre_id'] for feature in features], dtype=torch.long)
+    else:
+      batch['genre_id'] = None
     # batch['style_id'] = torch.tensor([feature['style_id'] for feature in features], dtype=torch.long)
     batch['input_ids'] = xs
     
