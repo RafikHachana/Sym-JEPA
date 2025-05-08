@@ -78,7 +78,7 @@ class SymJEPA(pl.LightningModule):
     self.vicreg_var_weight = vicreg_var_weight
     self.vicreg_cov_weight = vicreg_cov_weight
     self.vicreg_loss_ratio = vicreg_loss_ratio
-    self.pass_context_mask_to_predictor = pass_target_mask_to_predictor
+    self.pass_target_mask_to_predictor = pass_target_mask_to_predictor
     # Enable gradient checkpointing for memory efficiency
     encoder_config = BertConfig(
       vocab_size=1,
