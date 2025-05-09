@@ -359,7 +359,10 @@ class OctupleTokenizer(TokenizerBase):
 
 
     def get_events(self):
-        return F(self.file_path)
+        result = F(self.file_path)
+        if not result:
+            raise ValueError("Could not parse MIDI file")
+        return result
     
     @staticmethod
     def get_vocab():
