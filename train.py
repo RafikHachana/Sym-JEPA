@@ -150,11 +150,5 @@ def main():
     # Begin training
     trainer.fit(model, data_module)
     
-    if logger:
-        # Save the model
-        model.save_pretrained(os.path.join(output_dir, logger.version, "full_model"))
-        
-        # Save the predictor only
-        model.predictor.save_pretrained(os.path.join(output_dir, logger.version, "predictor"))
 if __name__ == "__main__":
     main() 
