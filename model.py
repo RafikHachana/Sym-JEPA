@@ -79,6 +79,10 @@ class SymJEPA(pl.LightningModule):
     self.vicreg_cov_weight = vicreg_cov_weight
     self.vicreg_loss_ratio = vicreg_loss_ratio
     self.pass_target_mask_to_predictor = pass_target_mask_to_predictor
+
+
+    if self.pass_target_mask_to_predictor:
+      self.target_mask_embedding = nn.Embedding(2, self.d_model)
     # Enable gradient checkpointing for memory efficiency
     encoder_config = BertConfig(
       vocab_size=1,
@@ -159,7 +163,7 @@ class SymJEPA(pl.LightningModule):
 
 
         if self.pass_target_mask_to_predictor:
-            predictor_input = torch.cat([encoder_hidden, target_mask], dim=1)
+            predictor_input = torch.cat([encoder_hidden, self.target_mask_embedding(target_mask.to(torch.int))], dim=1)
         else:
             predictor_input = encoder_hidden
         pred = self.predictor(inputs_embeds=predictor_input, output_hidden_states=True)
