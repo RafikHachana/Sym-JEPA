@@ -3,8 +3,10 @@ import pretty_midi
 
 class TokenizerBase(ABC):
     @abstractmethod
-    def __init__(self, file, **kwargs):
-        if isinstance(file, pretty_midi.PrettyMIDI):
+    def __init__(self, file, skip_pm=False,**kwargs):
+        if skip_pm:
+            self.pm = None
+        elif isinstance(file, pretty_midi.PrettyMIDI):
             self.pm = file
         else:
             self.pm = pretty_midi.PrettyMIDI(file)

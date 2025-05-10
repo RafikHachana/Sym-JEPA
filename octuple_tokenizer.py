@@ -233,7 +233,7 @@ def F(file_name):
                    31 for j in midi_obj.time_signature_changes), 'bad time signature value'
         assert 0 < midi_obj.ticks_per_beat < 2 ** 31, 'bad ticks per beat'
     except BaseException as e:
-        traceback.print_exc()
+        # traceback.print_exc()
         print('ERROR(PARSE): ' + file_name + ' ' + str(e) + '\n', end='')
         return None
     midi_notes_count = sum(len(inst.notes) for inst in midi_obj.instruments)
@@ -348,10 +348,7 @@ class OctupleTokenizer(TokenizerBase):
         return 'octuple_v1'
     
     def __init__(self, file, strict=False):
-        super().__init__(file)
-        
-        if strict and len(self.pm.time_signature_changes) == 0:
-            raise ValueError("Invalid MIDI file: No time signature defined")
+        super().__init__(file, skip_pm=True)
         
         assert isinstance(file, str), "File must be a string"
         self.file_path = file
