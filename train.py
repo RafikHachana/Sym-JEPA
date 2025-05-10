@@ -145,6 +145,8 @@ def main():
             'train_dataset_size': len(data_module.train_dataloader().dataset),
             'val_dataset_size': len(data_module.val_dataloader().dataset),
             'test_dataset_size': len(data_module.test_dataloader().dataset),
+            'skipped_files': len(data_module.skipped_files),
+            'total_files': len(data_module.files)
         })
 
     # Begin training

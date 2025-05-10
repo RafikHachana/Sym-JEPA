@@ -116,6 +116,8 @@ class MidiDataModule(pl.LightningDataModule):
         num_segments=self.num_segments
     )
 
+    self.skipped_files = self.train_ds.skipped_files + self.valid_ds.skipped_files + self.test_ds.skipped_files
+
   def train_dataloader(self):
     return DataLoader(self.train_ds, 
                       collate_fn=self.collator, 
@@ -322,6 +324,8 @@ class MidiDataset(torch.utils.data.Dataset):
     
     # Pre-process all files and store their data
     self.data = []
+
+    self.skipped_files = []
     for file in self.files:
       try:
         current_file = self.load_file(file)
@@ -416,6 +420,7 @@ class MidiDataset(torch.utils.data.Dataset):
         # traceback.print_exc()
         if self.print_errors:
           print(f"Error loading file {file}: {err}")       
+        self.skipped_files.append(file)
         continue
 
   def __len__(self):
