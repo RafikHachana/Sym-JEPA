@@ -205,7 +205,7 @@ class SymJEPA(pl.LightningModule):
     
     return total_loss, sim_loss, var_loss, cov_loss
 
-  def get_loss(self, batch):
+  def get_loss(self, batch, fold='train'):
     pred, target, context_hidden = self(
       batch['context_ids'],
       batch['target_ids'],
@@ -228,21 +228,21 @@ class SymJEPA(pl.LightningModule):
       vicreg_total = vicreg_total * scale
       
       # Log VicReg components
-      self.log('train_vicreg_sim', vic_sim, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-      self.log('train_vicreg_var', vic_var, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-      self.log('train_vicreg_cov', vic_cov, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+      self.log(f'{fold}_vicreg_sim', vic_sim, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+      self.log(f'{fold}_vicreg_var', vic_var, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+      self.log(f'{fold}_vicreg_cov', vic_cov, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
       
       # Combine losses
       total_loss = jepa_loss + vicreg_total
-      self.log('train_jepa_loss', jepa_loss, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-      self.log('train_vicreg_loss', vicreg_total, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+      self.log(f'{fold}_jepa_loss', jepa_loss, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+      self.log(f'{fold}_vicreg_loss', vicreg_total, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
       
       return total_loss
     
     return jepa_loss
   
   def training_step(self, batch, batch_idx):
-    loss = self.get_loss(batch)
+    loss = self.get_loss(batch, fold='train')
 
     # Log gradients for both encoders
     target_grad_sum = 0
@@ -286,7 +286,7 @@ class SymJEPA(pl.LightningModule):
     return loss
   
   def validation_step(self, batch, batch_idx):
-    loss = self.get_loss(batch)
+    loss = self.get_loss(batch, fold='val')
     
     # Get encoder outputs
     context_emb = self.remi_in(batch['context_ids'])
