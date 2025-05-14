@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from transformers import BertConfig, BertModel
 import pdb
 from vocab import RemiVocab
+from model import SymJEPA
 
 class GenreClassificationModel(pl.LightningModule):
     def __init__(self, 
@@ -14,6 +15,7 @@ class GenreClassificationModel(pl.LightningModule):
                     encoder_layers=8,
                     num_attention_heads=8,
                     intermediate_size=2048,
+                    tokenization='remi',
                  **kwargs):
         super().__init__()
 
@@ -29,7 +31,7 @@ class GenreClassificationModel(pl.LightningModule):
         )
         
         # Initialize only the encoder
-        self.context_encoder = BertModel(encoder_config)
+        self.jepa = SymJEPA(tokenization=tokenization, pass_target_mask_to_predictor=True)
 
         self.genre_classifier = nn.Linear(d_model, num_genres)
 
@@ -40,14 +42,8 @@ class GenreClassificationModel(pl.LightningModule):
         self.intermediate_size = intermediate_size
 
 
-        self.vocab = RemiVocab()
-
-        self.remi_in = nn.Embedding(len(self.vocab), self.d_model)
-
-    def forward(self, input_ids, attention_mask):
-        input_ids = self.remi_in(input_ids)
-        out = self.context_encoder(inputs_embeds=input_ids, output_hidden_states=True)
-        encoder_hidden = out.hidden_states[-1]
+    def forward(self, input_ids):
+        encoder_hidden = self.jepa.encode_context(input_ids)
         # Mean pool over the sequence length
         encoder_hidden = torch.mean(encoder_hidden, dim=1)
         logits = self.genre_classifier(encoder_hidden)
@@ -57,26 +53,43 @@ class GenreClassificationModel(pl.LightningModule):
         input_ids = batch['input_ids']
         # attention_mask = batch['attention_mask']
         # pdb.set_trace()
-        logits = self(input_ids, None)
+        logits = self(input_ids)
         loss = F.cross_entropy(logits, batch['genre_id'])
+        self.log('train_loss', loss)
         return loss
     
     def validation_step(self, batch, batch_idx):
         input_ids = batch['input_ids']
         # attention_mask = batch['attention_mask']
-        logits = self(input_ids, None)
+        logits = self(input_ids)
         loss = F.cross_entropy(logits, batch['genre_id'])
 
         self.log('val_loss', loss)
         preds = torch.argmax(logits, dim=1)
         acc = (preds == batch['genre_id']).float().mean()
         self.log('val_acc', acc)
+        
+        # Calculate F1 score manually
+        num_classes = logits.size(1)
+        tp = torch.zeros(num_classes, device=preds.device)
+        fp = torch.zeros(num_classes, device=preds.device)
+        fn = torch.zeros(num_classes, device=preds.device)
+        
+        for c in range(num_classes):
+            tp[c] = ((preds == c) & (batch['genre_id'] == c)).sum()
+            fp[c] = ((preds == c) & (batch['genre_id'] != c)).sum()
+            fn[c] = ((preds != c) & (batch['genre_id'] == c)).sum()
+        
+        precision = tp / (tp + fp + 1e-7)
+        recall = tp / (tp + fn + 1e-7)
+        f1 = 2 * (precision * recall) / (precision + recall + 1e-7)
+        macro_f1 = f1.mean()
+        
+        self.log('val_f1', macro_f1)
         return loss
 
-    def load_encoder(self, ckpt_path, embedding_path):
-        self.context_encoder.load_state_dict(torch.load(ckpt_path))
-
-        self.remi_in.load_state_dict(torch.load(embedding_path))
+    def load_jepa(self, ckpt_path):
+        self.jepa.load_state_dict(torch.load(ckpt_path)['state_dict'])
 
     def configure_optimizers(self):
         return torch.optim.AdamW(self.parameters(), lr=self.lr)

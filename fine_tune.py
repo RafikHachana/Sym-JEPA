@@ -11,10 +11,13 @@ torch.set_float32_matmul_precision('high')
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_path", type=str, required=True)
+    parser.add_argument("--model_path", type=str, required=False)
     parser.add_argument("--output_dir", type=str, required=True)
+    parser.add_argument('--tokenization', type=str, default='remi',
+                      choices=['remi', 'octuple'],
+                      help='Tokenization method to use (remi or octuple)')
+                      
     args = parser.parse_args()
-
 
     model = GenreClassificationModel(
         num_genres=13,
@@ -22,9 +25,11 @@ def main():
         d_model=512,
         encoder_layers=8,
         num_attention_heads=8,
+        tokenization=args.tokenization
     )
 
-    model.load_encoder(args.model_path, "remi_in.ckpt")
+    if args.model_path:
+        model.load_jepa(args.model_path)
 
     logger = WandbLogger(
         project="symjepa-genre-classification",
@@ -38,11 +43,12 @@ def main():
         batch_size=32,
         num_workers=4,
         skip_unknown_genres=True,
+        tokenization=args.tokenization
     )
 
 
     trainer = pl.Trainer(
-        max_epochs=10,
+        max_epochs=3,
         callbacks=[
             ModelCheckpoint(monitor='val_loss', mode='min', save_top_k=1, save_last=True)
         ],
