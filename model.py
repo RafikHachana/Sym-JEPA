@@ -114,15 +114,15 @@ class SymJEPA(pl.LightningModule):
       max_positions=self.max_positions,
       description_options=self.description_options,
       **kwargs
-    )    
+    )
 
-  def forward(self, context_ids, target_ids=None, return_context_encoder_hidden=False, context_mask=None, target_mask=None):
+  def embed(self, input_ids):
     # Context and target IDs should be already masked
     if self.tokenization == 'remi':
-        context_emb = self.remi_in(context_ids)
+        context_emb = self.remi_in(input_ids)
     else:  # octuple
         # Embed tokens
-        x = self.octuple_in(context_ids)  # [batch_size, seq_len, d_model]
+        x = self.octuple_in(input_ids)  # [batch_size, seq_len, d_model]
         
         # Reshape to group every 8 tokens
         batch_size, seq_len, emb_dim = x.shape
@@ -132,28 +132,26 @@ class SymJEPA(pl.LightningModule):
         context_emb = self.octuple_downsampling(x)
         context_emb = self.octuple_layer_norm(context_emb)
         context_emb = self.octuple_dropout(context_emb)
+
+    return context_emb
+
+  def encode_context(self, context_ids, context_mask=None):
+    context_emb = self.embed(context_ids)
     out = self.context_encoder(inputs_embeds=context_emb, output_hidden_states=True)
     encoder_hidden = out.hidden_states[-1]
 
-    if self.tokenization == 'octuple':
-      context_mask = context_mask[:, ::8]
     if context_mask is not None:
+      if self.tokenization == 'octuple':
+        context_mask = context_mask[:, ::8]
       encoder_hidden[context_mask] = 0
+    return encoder_hidden
+
+  def forward(self, context_ids, target_ids=None, return_context_encoder_hidden=False, context_mask=None, target_mask=None):
+    encoder_hidden = self.encode_context(context_ids, context_mask)
 
     if target_ids is not None:
-        
-        
         with torch.no_grad():
-            if self.tokenization == 'remi':
-                target_emb = self.remi_in(target_ids)
-            else:  # octuple
-                x = self.octuple_in(target_ids)
-                batch_size, seq_len, emb_dim = x.shape
-                x = x.view(batch_size, seq_len // 8, 8 * emb_dim)
-                target_emb = self.octuple_downsampling(x)
-                target_emb = self.octuple_layer_norm(target_emb)
-                target_emb = self.octuple_dropout(target_emb)
-                
+            target_emb = self.embed(target_ids)
             out = self.target_encoder(inputs_embeds=target_emb, output_hidden_states=True)
             target_encoder_hidden = out.last_hidden_state
 
