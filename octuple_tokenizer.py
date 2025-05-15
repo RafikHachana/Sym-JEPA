@@ -234,7 +234,7 @@ def F(file_name):
         assert 0 < midi_obj.ticks_per_beat < 2 ** 31, 'bad ticks per beat'
     except BaseException as e:
         # traceback.print_exc()
-        print('ERROR(PARSE): ' + file_name + ' ' + str(e) + '\n', end='')
+        # print('ERROR(PARSE): ' + file_name + ' ' + str(e) + '\n', end='')
         return None
     midi_notes_count = sum(len(inst.notes) for inst in midi_obj.instruments)
     if midi_notes_count == 0:
