@@ -332,6 +332,7 @@ class MidiDataset(torch.utils.data.Dataset):
     self.idx_to_style = {i: style for i, style in enumerate(self.all_styles)}
 
     self.genre_counts = torch.zeros(len(self.all_genres))
+    self.style_counts = torch.zeros(len(self.all_styles))
 
     self.vocab = self.tokenizer_class.get_vocab()
 

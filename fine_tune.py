@@ -16,44 +16,54 @@ def main():
     parser.add_argument('--tokenization', type=str, default='remi',
                       choices=['remi', 'octuple'],
                       help='Tokenization method to use (remi or octuple)')
+
+    parser.add_argument('--max_epochs', type=int, default=3)
+    parser.add_argument('--task', type=str, default='genre',
+    choices=['genre', 'style'], help='Task to fine-tune on')
                       
     args = parser.parse_args()
 
+    midi_files = glob(os.path.join("dataset/clean_midi", "**/*.mid"), recursive=True)
+    data_module = MidiDataModule(
+        midi_files,
+        max_len=512,
+        batch_size=32,
+        num_workers=4,
+        skip_unknown_genres=args.task == 'genre',
+        skip_unknown_styles=args.task == 'style',
+        tokenization=args.tokenization
+    )
+
+    data_module.setup()
+
     model = GenreClassificationModel(
-        num_genres=13,
-        lr=1e-4,
+        num_classes=len(data_module.train_ds.all_genres) if args.task == 'genre' else len(data_module.train_ds.all_styles),
+        lr=1e-2,
         d_model=512,
         encoder_layers=8,
         num_attention_heads=8,
-        tokenization=args.tokenization
+        tokenization=args.tokenization,
+        class_weights=torch.tensor([1/(x+1e-7) for x in data_module.train_ds.genre_counts]),
+        task=args.task
     )
 
     if args.model_path:
         model.load_jepa(args.model_path)
 
     logger = WandbLogger(
-        project="symjepa-genre-classification",
+        project=f"symjepa-{args.task}-classification",
         entity="rh-iu",
     )
-    midi_files = glob(os.path.join("dataset/clean_midi", "**/*.mid"), recursive=True)
-
-    data_module = MidiDataModule(
-        midi_files,
-        max_len=512,
-        batch_size=32,
-        num_workers=4,
-        skip_unknown_genres=True,
-        tokenization=args.tokenization
-    )
-
 
     trainer = pl.Trainer(
-        max_epochs=3,
+        max_epochs=args.max_epochs,
         callbacks=[
             ModelCheckpoint(monitor='val_loss', mode='min', save_top_k=1, save_last=True)
         ],
         logger=logger
     )
+
+    trainer.validate(model, data_module)
 
     trainer.fit(model, data_module)
 
