@@ -57,6 +57,8 @@ def add_model_specific_args(parent_parser):
                        help="Target ratio of VICReg loss to JEPA loss (default: 0.3)")
     parser.add_argument("--pass_target_mask_to_predictor", action="store_true",
                        help="Pass target mask to predictor")
+    parser.add_argument("--max_len", type=int, default=512,
+                       help="Maximum length of the input sequence")
     return parent_parser
 
 def main():
@@ -96,7 +98,7 @@ def main():
     
     data_module = MidiDataModule(
         midi_files, 
-        max_len=512,
+        max_len=args.max_len,
         jepa_context_ratio=args.jepa_context_ratio,
         use_mask_padding=args.use_mask_padding,
         masking_mode=args.masking_mode,
