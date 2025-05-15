@@ -17,6 +17,7 @@ from vocab import RemiVocab
 from constants import (
   BAR_KEY, POSITION_KEY
 )
+from tqdm import tqdm
 
 
 CACHE_PATH = os.getenv('CACHE_PATH', os.getenv('SCRATCH', os.getenv('TMPDIR', './temp')))
@@ -41,6 +42,7 @@ class MidiDataModule(pl.LightningDataModule):
                tokenization='remi',
                genre_map='metadata/midi_genre_map.json',
                skip_unknown_genres=False,
+               skip_unknown_styles=False,
                **kwargs):
     super().__init__()
     self.batch_size = batch_size
@@ -59,6 +61,7 @@ class MidiDataModule(pl.LightningDataModule):
     self.tokenization = tokenization
     self.genre_map = genre_map
     self.skip_unknown_genres = skip_unknown_genres
+    self.skip_unknown_styles = skip_unknown_styles
     if tokenization == 'remi':
         from input_representation import RemiTokenizer
         self.tokenizer_class = RemiTokenizer
@@ -73,7 +76,11 @@ class MidiDataModule(pl.LightningDataModule):
     self.unk_token = self.tokenizer_class.get_unk_token()
     self.pad_token = self.tokenizer_class.get_pad_token()
 
+    self.setup_done = False
+
   def setup(self, stage=None):
+    if self.setup_done:
+      return
     # n_train = int(self.train_val_test_split[0] * len(self.files))
     n_valid = int(self.train_val_test_split[1] * len(self.files))
     n_test = int(self.train_val_test_split[2] * len(self.files))
@@ -85,18 +92,21 @@ class MidiDataModule(pl.LightningDataModule):
       tokenization=self.tokenization,
       tokenizer_class=self.tokenizer_class,
       skip_unknown_genres=self.skip_unknown_genres,
+      skip_unknown_styles=self.skip_unknown_styles,
       **self.kwargs
     )
     self.valid_ds = MidiDataset(valid_files, self.max_len, 
       tokenization=self.tokenization,
       tokenizer_class=self.tokenizer_class,
       skip_unknown_genres=self.skip_unknown_genres,
+      skip_unknown_styles=self.skip_unknown_styles,
       **self.kwargs
     )
     self.test_ds = MidiDataset(test_files, self.max_len, 
       tokenization=self.tokenization,
       tokenizer_class=self.tokenizer_class,
       skip_unknown_genres=self.skip_unknown_genres,
+      skip_unknown_styles=self.skip_unknown_styles,
       **self.kwargs
     )
 
@@ -117,6 +127,9 @@ class MidiDataModule(pl.LightningDataModule):
     )
 
     self.skipped_files = self.train_ds.skipped_files + self.valid_ds.skipped_files + self.test_ds.skipped_files
+
+    self.setup_done = True
+
 
   def train_dataloader(self):
     return DataLoader(self.train_ds, 
@@ -262,7 +275,12 @@ class SeqCollator:
       batch['genre_id'] = torch.tensor([feature['genre_id'] for feature in features], dtype=torch.long)
     else:
       batch['genre_id'] = None
-    # batch['style_id'] = torch.tensor([feature['style_id'] for feature in features], dtype=torch.long)
+
+    if all(feature['style_id'] is not None for feature in features):
+      batch['style_id'] = torch.tensor([feature['style_id'] for feature in features], dtype=torch.long)
+    else:
+      batch['style_id'] = None
+
     batch['input_ids'] = xs
     
     
@@ -281,11 +299,12 @@ class MidiDataset(torch.utils.data.Dataset):
                bar_token_mask=None,
                bar_token_idx=2,
                use_cache=True,
-               print_errors=True,
+               print_errors=False,
                tokenizer_class=RemiTokenizer,
                use_mask_padding=False,
                genre_map_path='metadata/midi_genre_map.json',
-               skip_unknown_genres=False):
+               skip_unknown_genres=False,
+               skip_unknown_styles=False):
     self.files = midi_files
     self.group_bars = group_bars
     self.max_len = max_len
@@ -298,6 +317,7 @@ class MidiDataset(torch.utils.data.Dataset):
     self.use_mask_padding = use_mask_padding
     self.tokenization = tokenization
     self.skip_unknown_genres = skip_unknown_genres
+    self.skip_unknown_styles = skip_unknown_styles
     self.tokenizer_class = tokenizer_class
     with open(genre_map_path, 'r') as f:
       self.genre_map = json.load(f)
@@ -310,6 +330,8 @@ class MidiDataset(torch.utils.data.Dataset):
 
     self.style_to_idx = {style: i for i, style in enumerate(self.all_styles)}
     self.idx_to_style = {i: style for i, style in enumerate(self.all_styles)}
+
+    self.genre_counts = torch.zeros(len(self.all_genres))
 
     self.vocab = self.tokenizer_class.get_vocab()
 
@@ -326,7 +348,7 @@ class MidiDataset(torch.utils.data.Dataset):
     self.data = []
 
     self.skipped_files = []
-    for file in self.files:
+    for file in tqdm(self.files):
       try:
         current_file = self.load_file(file)
         events = current_file['events']
@@ -406,6 +428,16 @@ class MidiDataset(torch.utils.data.Dataset):
           
           if genre is None and self.skip_unknown_genres:
             continue
+
+          if style is None and self.skip_unknown_styles:
+            continue
+
+          if genre is not None:
+            self.genre_counts[self.genre_to_idx[genre]] += 1
+
+          if style is not None:
+            self.style_counts[self.style_to_idx[style]] += 1
+
           self.data.append({
             'input_ids': src,
             'file': os.path.basename(file),
