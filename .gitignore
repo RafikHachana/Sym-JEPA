@@ -9,3 +9,6 @@ venv
 .env
 wandb/
 symjepa
+symjepa-genre-classification
+lightning_logs/
+
