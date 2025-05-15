@@ -43,6 +43,7 @@ class MidiDataModule(pl.LightningDataModule):
                genre_map='metadata/midi_genre_map.json',
                skip_unknown_genres=False,
                skip_unknown_styles=False,
+               generate_melody_completion_pairs=False,
                **kwargs):
     super().__init__()
     self.batch_size = batch_size
@@ -62,6 +63,7 @@ class MidiDataModule(pl.LightningDataModule):
     self.genre_map = genre_map
     self.skip_unknown_genres = skip_unknown_genres
     self.skip_unknown_styles = skip_unknown_styles
+    self.generate_melody_completion_pairs = generate_melody_completion_pairs
     if tokenization == 'remi':
         from input_representation import RemiTokenizer
         self.tokenizer_class = RemiTokenizer
@@ -123,7 +125,8 @@ class MidiDataModule(pl.LightningDataModule):
         masking_mode=self.masking_mode,
         masking_probability=self.masking_probability,
         segment_size_ratio=self.segment_size_ratio,
-        num_segments=self.num_segments
+        num_segments=self.num_segments,
+        generate_melody_completion_pairs=self.generate_melody_completion_pairs
     )
 
     self.skipped_files = self.train_ds.skipped_files + self.valid_ds.skipped_files + self.test_ds.skipped_files
@@ -176,7 +179,8 @@ class SeqCollator:
                masking_probability=0.25,
                segment_size_ratio=0.1,
                num_segments=3,
-               tokenization='remi'):
+               tokenization='remi',
+               generate_melody_completion_pairs=False):
     self.pad_token = pad_token
     self.mask_token = mask_token
     self.context_size = context_size
@@ -187,7 +191,7 @@ class SeqCollator:
     self.segment_size_ratio = segment_size_ratio
     self.num_segments = num_segments
     self.tokenization = tokenization
-
+    self.generate_melody_completion_pairs = generate_melody_completion_pairs
 
     self.mask_step = 1
     if tokenization == 'octuple':
@@ -230,8 +234,8 @@ class SeqCollator:
   def __call__(self, features):
     batch = {}
     
-    xs = [feature['input_ids'] for feature in features]
-    xs = pad_sequence(xs, batch_first=True, padding_value=self.pad_token)
+    xs_list = [feature['input_ids'] for feature in features]
+    xs = pad_sequence(xs_list, batch_first=True, padding_value=self.pad_token)
 
     if self.context_size > 0:
       max_len = min(self.context_size, xs.size(1))  # Use actual sequence length
@@ -282,9 +286,47 @@ class SeqCollator:
       batch['style_id'] = None
 
     batch['input_ids'] = xs
-    
+
+    if self.generate_melody_completion_pairs:
+      batch['melody_completion_start'], batch['melody_completion_end'], batch['melody_completion_match'] = self.generate_melody_completion_pairs(xs_list)
     
     return batch
+
+  def generate_melody_completion_pairs(self, xs_list):
+    melody_completion_start = []
+    melody_completion_end = []
+    melody_completion_match = []
+
+    batch_size = len(xs_list)
+
+    for i in range(batch_size):
+      start_ind = torch.randint(0, batch_size, (1,))
+      first_sample = xs_list[start_ind]
+      melody_completion_start.append(first_sample[:first_sample.size(0)//2])
+
+      positive_sample = torch.rand() < 0.5
+
+      if positive_sample:
+        # Generate a positive sample
+        
+        melody_completion_end.append(first_sample[first_sample.size(0)//2:])
+        melody_completion_match.append(True)
+      else:
+        # Generate a negative sample
+        second_sample = xs_list[torch.randint(0, batch_size, (1,))]
+
+        melody_completion_end.append(second_sample[second_sample.size(0)//2:])
+        melody_completion_match.append(False)
+
+    return (
+      pad_sequence(melody_completion_start, batch_first=True, padding_value=self.pad_token),
+      pad_sequence(melody_completion_end, batch_first=True, padding_value=self.pad_token),
+      torch.tensor(melody_completion_match, dtype=torch.bool)
+    )
+
+
+
+
 
 class MidiDataset(torch.utils.data.Dataset):
   def __init__(self, 
@@ -304,7 +346,8 @@ class MidiDataset(torch.utils.data.Dataset):
                use_mask_padding=False,
                genre_map_path='metadata/midi_genre_map.json',
                skip_unknown_genres=False,
-               skip_unknown_styles=False):
+               skip_unknown_styles=False,
+               generate_melody_completion_pairs=False):
     self.files = midi_files
     self.group_bars = group_bars
     self.max_len = max_len
@@ -319,6 +362,7 @@ class MidiDataset(torch.utils.data.Dataset):
     self.skip_unknown_genres = skip_unknown_genres
     self.skip_unknown_styles = skip_unknown_styles
     self.tokenizer_class = tokenizer_class
+
     with open(genre_map_path, 'r') as f:
       self.genre_map = json.load(f)
 
