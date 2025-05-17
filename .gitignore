@@ -11,4 +11,5 @@ wandb/
 symjepa
 symjepa-genre-classification
 lightning_logs/
-
+dataset
+*.ckpt
