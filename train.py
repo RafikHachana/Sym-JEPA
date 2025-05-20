@@ -37,7 +37,7 @@ def add_model_specific_args(parent_parser):
     parser.add_argument("--use_mask_padding", action="store_true",
                        help="Use MASK tokens instead of PAD tokens for JEPA context/target")
     parser.add_argument("--masking_mode", type=str, 
-                       choices=['contiguous', 'random', 'segments'],
+                       choices=['contiguous', 'random', 'segments', 'random_contiguous'],
                        default='contiguous',
                        help="Masking mode when use_mask_padding is True")
     parser.add_argument("--masking_probability", type=float,
@@ -61,8 +61,10 @@ def add_model_specific_args(parent_parser):
                        help="Target ratio of VICReg loss to JEPA loss (default: 0.3)")
     parser.add_argument("--pass_target_mask_to_predictor", action="store_true",
                        help="Pass target mask to predictor")
-    parser.add_argument("--max_len", type=int, default=512,
+    parser.add_argument("--max_len", type=int, default=2048,
                        help="Maximum length of the input sequence")
+    parser.add_argument("--lr", type=float, default=5e-2,
+                       help="Learning rate")
     return parent_parser
 
 def main():
@@ -72,7 +74,7 @@ def main():
     parser = argparse.ArgumentParser(description="Train Sym-JEPA with Weights & Biases logging")
     parser = add_model_specific_args(parser)
     parser.add_argument("--midi_dir", type=str, 
-                       default=os.getenv('MIDI_DIR', './dataset'),
+                       default=os.getenv('MIDI_DIR', './dataset/lmd_full/'),
                        help="Directory containing MIDI files")
     parser.add_argument("--max_epochs", type=int,
                        default=int(os.getenv('MAX_EPOCHS', 100)),
@@ -128,7 +130,8 @@ def main():
         lr_schedule='linear',
         max_steps=len(data_module.train_dataloader()) * args.max_epochs,
         tokenization=args.tokenization,
-        pass_target_mask_to_predictor=args.pass_target_mask_to_predictor
+        pass_target_mask_to_predictor=args.pass_target_mask_to_predictor,
+        lr=args.lr
     )
 
     
