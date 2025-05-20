@@ -173,7 +173,7 @@ def _get_split(files, worker_info):
 
 
 class SeqCollator:
-  def __init__(self, pad_token=0, mask_token=None, context_size=512, 
+  def __init__(self, pad_token=0, mask_token=None, context_size=2048, 
                jepa_context_ratio=0.75, use_mask_padding=False,
                masking_mode='contiguous',
                masking_probability=0.25,
@@ -605,7 +605,7 @@ if __name__ == "__main__":
         print("Please make sure the directory exists and contains .mid files.")
         exit(1)
     
-    dm = MidiDataModule(files, max_len=512, tokenization=args.tokenization, skip_unknown_genres=True)
+    dm = MidiDataModule(files, max_len=2048, tokenization=args.tokenization, skip_unknown_genres=True)
     dm.setup()
     
     print(f"\nDataset splits:")
