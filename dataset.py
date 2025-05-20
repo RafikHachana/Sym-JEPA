@@ -288,11 +288,11 @@ class SeqCollator:
     batch['input_ids'] = xs
 
     if self.generate_melody_completion_pairs:
-      batch['melody_completion_start'], batch['melody_completion_end'], batch['melody_completion_match'] = self.generate_melody_completion_pairs(xs_list)
+      batch['melody_completion_start'], batch['melody_completion_end'], batch['melody_completion_match'] = self._generate_melody_completion_pairs(xs_list)
     
     return batch
 
-  def generate_melody_completion_pairs(self, xs_list):
+  def _generate_melody_completion_pairs(self, xs_list):
     melody_completion_start = []
     melody_completion_end = []
     melody_completion_match = []
@@ -304,24 +304,24 @@ class SeqCollator:
       first_sample = xs_list[start_ind]
       melody_completion_start.append(first_sample[:first_sample.size(0)//2])
 
-      positive_sample = torch.rand() < 0.5
+      positive_sample = torch.rand(1).item() < 0.5
 
       if positive_sample:
         # Generate a positive sample
         
         melody_completion_end.append(first_sample[first_sample.size(0)//2:])
-        melody_completion_match.append(True)
+        melody_completion_match.append(1)
       else:
         # Generate a negative sample
         second_sample = xs_list[torch.randint(0, batch_size, (1,))]
 
         melody_completion_end.append(second_sample[second_sample.size(0)//2:])
-        melody_completion_match.append(False)
+        melody_completion_match.append(0)
 
     return (
       pad_sequence(melody_completion_start, batch_first=True, padding_value=self.pad_token),
       pad_sequence(melody_completion_end, batch_first=True, padding_value=self.pad_token),
-      torch.tensor(melody_completion_match, dtype=torch.bool)
+      torch.tensor(melody_completion_match, dtype=torch.long)
     )
 
 
