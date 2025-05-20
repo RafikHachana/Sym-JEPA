@@ -205,6 +205,14 @@ class SeqCollator:
       assert mask_start % mask_step == 0, f"mask_start {mask_start} is not divisible by mask_step {mask_step}"
       mask = torch.zeros(seq_length, dtype=torch.bool)
       mask[mask_start:] = True
+
+    elif self.masking_mode == 'random_contiguous':
+      # Random contiguous masking
+      mask_start_max = int(seq_length // mask_step * self.jepa_context_ratio) * mask_step
+      assert mask_start_max % mask_step == 0, f"mask_start_max {mask_start_max} is not divisible by mask_step {mask_step}"
+      mask_start = torch.randint(0, mask_start_max, (1,))
+      mask = torch.zeros(seq_length, dtype=torch.bool)
+      mask[mask_start:] = True
       
     elif self.masking_mode == 'random':
       # Random token masking
