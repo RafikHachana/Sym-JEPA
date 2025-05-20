@@ -238,12 +238,12 @@ def F(file_name):
         return None
     midi_notes_count = sum(len(inst.notes) for inst in midi_obj.instruments)
     if midi_notes_count == 0:
-        print('ERROR(BLANK): ' + file_name + '\n', end='')
+        # print('ERROR(BLANK): ' + file_name + '\n', end='')
         return None
     try:
         e = MIDI_to_encoding(midi_obj)
         if len(e) == 0:
-            print('ERROR(BLANK): ' + file_name + '\n', end='')
+            # print('ERROR(BLANK): ' + file_name + '\n', end='')
             return None
         if ts_filter:
             allowed_ts = t2e(time_signature_reduce(4, 4))
