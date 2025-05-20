@@ -21,9 +21,13 @@ def add_model_specific_args(parent_parser):
                       choices=['remi', 'octuple'],
                       help='Tokenization method to use (remi or octuple)')
 
-    parser.add_argument("--jepa_context_ratio", type=float,
-                       default=float(os.getenv('JEPA_CONTEXT_RATIO', 0.75)),
-                       help="Ratio of sequence length to use as context (default: 0.75)")
+    parser.add_argument("--jepa_context_ratio_start", type=float,
+                       default=float(os.getenv('JEPA_CONTEXT_RATIO_START', 0.975)),
+                       help="Ratio of sequence length to use as context at the start of training (default: 0.975)")
+    parser.add_argument("--jepa_context_ratio_end", type=float,
+                       default=float(os.getenv('JEPA_CONTEXT_RATIO_END', 0.6)),
+                       help="Ratio of sequence length to use as context at the end of training (default: 0.6)")
+
     parser.add_argument("--limit", type=int, default=None,
                        help="Limit the number of files to load")
     parser.add_argument("--fast_dev_run", action="store_true",
@@ -99,7 +103,9 @@ def main():
     data_module = MidiDataModule(
         midi_files, 
         max_len=args.max_len,
-        jepa_context_ratio=args.jepa_context_ratio,
+        jepa_context_ratio_start=args.jepa_context_ratio_start,
+        jepa_context_ratio_end=args.jepa_context_ratio_end,
+        num_epochs=args.max_epochs,
         use_mask_padding=args.use_mask_padding,
         masking_mode=args.masking_mode,
         masking_probability=args.masking_probability,

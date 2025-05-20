@@ -238,6 +238,10 @@ class SymJEPA(pl.LightningModule):
       return total_loss
     
     return jepa_loss
+
+  def on_train_epoch_start(self, batch, batch_idx):
+    current_context_ratio = self.trainer.datamodule.collator.ratio_context_step(batch_idx)
+    self.log('context_ratio', current_context_ratio, on_step=True, logger=True, sync_dist=True)
   
   def training_step(self, batch, batch_idx):
     loss = self.get_loss(batch, fold='train')

@@ -33,9 +33,12 @@ class MidiDataModule(pl.LightningDataModule):
                num_workers=4,
                pin_memory=True, 
                train_val_test_split=(0.95, 0.1, 0.05),
-               jepa_context_ratio=0.75,
+               jepa_context_ratio_start=0.975,
+               jepa_context_ratio_end=0.6,
+               jepa_context_ratio_steps=100,
                use_mask_padding=False,
                masking_mode='contiguous',
+               num_epochs=10,
                masking_probability=0.25,
                segment_size_ratio=0.1,
                num_segments=3,
@@ -52,7 +55,9 @@ class MidiDataModule(pl.LightningDataModule):
     self.files = files
     self.train_val_test_split = train_val_test_split
     self.max_len = max_len
-    self.jepa_context_ratio = jepa_context_ratio
+    self.jepa_context_ratio_start = jepa_context_ratio_start
+    self.jepa_context_ratio_end = jepa_context_ratio_end
+    self.jepa_context_ratio_steps = jepa_context_ratio_steps
     self.use_mask_padding = use_mask_padding
     self.masking_mode = masking_mode
     self.masking_probability = masking_probability
@@ -64,6 +69,7 @@ class MidiDataModule(pl.LightningDataModule):
     self.skip_unknown_genres = skip_unknown_genres
     self.skip_unknown_styles = skip_unknown_styles
     self.generate_melody_completion_pairs = generate_melody_completion_pairs
+    self.num_epochs = num_epochs
     if tokenization == 'remi':
         from input_representation import RemiTokenizer
         self.tokenizer_class = RemiTokenizer
@@ -120,7 +126,9 @@ class MidiDataModule(pl.LightningDataModule):
         pad_token=self.vocab.to_i(self.pad_token),
         mask_token=self.vocab.to_i(self.mask_token),
         context_size=self.max_len,
-        jepa_context_ratio=self.jepa_context_ratio,
+        jepa_context_ratio_start=self.jepa_context_ratio_start,
+        jepa_context_ratio_end=self.jepa_context_ratio_end,
+        jepa_context_ratio_steps=self.num_epochs * len(self.train_ds),
         use_mask_padding=self.use_mask_padding,
         masking_mode=self.masking_mode,
         masking_probability=self.masking_probability,
@@ -174,7 +182,10 @@ def _get_split(files, worker_info):
 
 class SeqCollator:
   def __init__(self, pad_token=0, mask_token=None, context_size=2048, 
-               jepa_context_ratio=0.75, use_mask_padding=False,
+               jepa_context_ratio_start=0.975,
+               jepa_context_ratio_end=0.6,
+               jepa_context_ratio_steps=100,
+               use_mask_padding=False,
                masking_mode='contiguous',
                masking_probability=0.25,
                segment_size_ratio=0.1,
@@ -184,7 +195,10 @@ class SeqCollator:
     self.pad_token = pad_token
     self.mask_token = mask_token
     self.context_size = context_size
-    self.jepa_context_ratio = jepa_context_ratio
+    self.jepa_context_ratio_start = jepa_context_ratio_start
+    self.current_jepa_context_ratio = jepa_context_ratio_start
+    self.jepa_context_ratio_end = jepa_context_ratio_end
+    self.jepa_context_ratio_steps = jepa_context_ratio_steps
     self.use_mask_padding = use_mask_padding
     self.masking_mode = masking_mode
     self.masking_probability = masking_probability
@@ -197,18 +211,23 @@ class SeqCollator:
     if tokenization == 'octuple':
       self.mask_step = 8
 
+  def ratio_context_step(self, step):
+    new_ratio = self.jepa_context_ratio_start + (self.jepa_context_ratio_end - self.jepa_context_ratio_start) * (step / self.jepa_context_ratio_steps)
+    self.current_jepa_context_ratio = new_ratio
+    return new_ratio
+
   def create_masks(self, seq_length, mask_step=1):
     # IMPORTANT: Only the contiguous masking works with the octuple tokenization
     if self.masking_mode == 'contiguous':
       # Original contiguous masking
-      mask_start = int(seq_length // mask_step * self.jepa_context_ratio) * mask_step
+      mask_start = int(seq_length // mask_step * self.current_jepa_context_ratio) * mask_step
       assert mask_start % mask_step == 0, f"mask_start {mask_start} is not divisible by mask_step {mask_step}"
       mask = torch.zeros(seq_length, dtype=torch.bool)
       mask[mask_start:] = True
 
     elif self.masking_mode == 'random_contiguous':
       # Random contiguous masking
-      mask_start_max = int(seq_length // mask_step * self.jepa_context_ratio) * mask_step
+      mask_start_max = int(seq_length // mask_step * self.current_jepa_context_ratio) * mask_step
       assert mask_start_max % mask_step == 0, f"mask_start_max {mask_start_max} is not divisible by mask_step {mask_step}"
       mask_start = torch.randint(0, mask_start_max, (1,))
       mask = torch.zeros(seq_length, dtype=torch.bool)
