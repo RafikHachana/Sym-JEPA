@@ -27,12 +27,15 @@ def main():
                       
     args = parser.parse_args()
 
-    midi_files = glob(os.path.join("dataset/clean_midi", "**/*.mid"), recursive=True)
+    midi_files = glob(os.path.join("dataset/lmd_full", "**/*.mid"), recursive=True)[:50000]
     data_module = MidiDataModule(
         midi_files,
-        max_len=512,
+        max_len=2048,
         batch_size=32,
         num_workers=4,
+        jepa_context_ratio_start=0.975,
+        jepa_context_ratio_end=0.975,
+        jepa_context_ratio_steps=100,
         skip_unknown_genres=args.task == 'genre',
         skip_unknown_styles=args.task == 'style',
         tokenization=args.tokenization,
@@ -44,7 +47,7 @@ def main():
     if args.task == 'genre' or args.task == 'style':
         model = GenreClassificationModel(
             num_classes=len(data_module.train_ds.all_genres) if args.task == 'genre' else len(data_module.train_ds.all_styles),
-            lr=1e-2,
+            lr=5e-3,
             d_model=512,
             encoder_layers=8,
             num_attention_heads=8,
