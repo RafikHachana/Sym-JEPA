@@ -152,7 +152,8 @@ def main():
     if not args.fast_dev_run and logger is not None:
         logger.log_hyperparams({
             **model.hparams,
-            'jepa_context_ratio': args.jepa_context_ratio,
+            'jepa_context_ratio_start': args.jepa_context_ratio_start,
+            'jepa_context_ratio_end': args.jepa_context_ratio_end,
             'train_dataset_size': len(data_module.train_dataloader().dataset),
             'val_dataset_size': len(data_module.val_dataloader().dataset),
             'test_dataset_size': len(data_module.test_dataloader().dataset),

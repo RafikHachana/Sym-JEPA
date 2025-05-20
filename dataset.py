@@ -288,7 +288,7 @@ class SeqCollator:
       
     else:
       # Original padding method
-      jepa_context_size = int(xs.size(1) * self.jepa_context_ratio)
+      jepa_context_size = int(xs.size(1) * self.current_jepa_context_ratio)
       context = xs[:, :jepa_context_size]
       target = xs[:, jepa_context_size:]
       
