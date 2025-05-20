@@ -347,7 +347,8 @@ class MidiDataset(torch.utils.data.Dataset):
                genre_map_path='metadata/midi_genre_map.json',
                skip_unknown_genres=False,
                skip_unknown_styles=False,
-               generate_melody_completion_pairs=False):
+               generate_melody_completion_pairs=False,
+               sample_count_per_sequence=1):
     self.files = midi_files
     self.group_bars = group_bars
     self.max_len = max_len
@@ -362,7 +363,7 @@ class MidiDataset(torch.utils.data.Dataset):
     self.skip_unknown_genres = skip_unknown_genres
     self.skip_unknown_styles = skip_unknown_styles
     self.tokenizer_class = tokenizer_class
-
+    self.sample_count_per_sequence = sample_count_per_sequence
     with open(genre_map_path, 'r') as f:
       self.genre_map = json.load(f)
 
@@ -483,15 +484,16 @@ class MidiDataset(torch.utils.data.Dataset):
           if style is not None:
             self.style_counts[self.style_to_idx[style]] += 1
 
-          self.data.append({
-            'input_ids': src,
-            'file': os.path.basename(file),
-            # 'bar_ids': b_ids,
-            'file_id': file_id,
-            # 'position_ids': p_ids,
-            'genre_id': self.genre_to_idx[genre] if genre else None,
-            'style_id': self.style_to_idx[style] if style else None,
-          })
+          for _ in range(self.sample_count_per_sequence):
+            self.data.append({
+              'input_ids': src,
+              'file': os.path.basename(file),
+              # 'bar_ids': b_ids,
+              'file_id': file_id,
+              # 'position_ids': p_ids,
+              'genre_id': self.genre_to_idx[genre] if genre else None,
+              'style_id': self.style_to_idx[style] if style else None,
+            })
 
       except ValueError as err:
         # traceback.print_exc()
