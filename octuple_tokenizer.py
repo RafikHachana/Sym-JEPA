@@ -4,6 +4,7 @@ import numpy as np
 import pretty_midi
 import traceback
 import pdb
+from typing import List
 
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
@@ -195,6 +196,9 @@ def MIDI_to_encoding(midi_obj):
                 continue
             start_distribution[time_to_pos(note.start) % pos_resolution] += 1
             info = pos_to_info[time_to_pos(note.start)]
+
+            print("Onset", time_to_pos(note.start), "End", time_to_pos(note.end))
+            # The structure is here
             encoding.append((info[0], info[2], max_inst + 1 if inst.is_drum else inst.program, note.pitch + max_pitch +
                              1 if inst.is_drum else note.pitch, d2e(time_to_pos(note.end) - time_to_pos(note.start)), v2e(note.velocity), info[1], info[3]))
     if len(encoding) == 0:
@@ -208,7 +212,6 @@ def MIDI_to_encoding(midi_obj):
             start_ppl)
     encoding.sort()
     return encoding
-
 
 
 
@@ -349,9 +352,14 @@ def get_special_tokens():
     return ["<s>", "</s>", "<unk>", "<pad>", "<mask>"]
 
 def token_to_value(token):
-    if token in get_standard_vocab_tokens():
+    if token in get_special_tokens():
         return -1
-    return int(token.split('-')[1][:-1])
+    try:
+        return int(token.split('-')[1][:-1])
+    except:
+        print(token)
+        raise ValueError(f"Unknown token: {token}")
+
 
 
 class OctupleVocab(Vocab):
@@ -399,10 +407,73 @@ class OctupleTokenizer(TokenizerBase):
     @staticmethod
     def get_pad_token():
         return "<pad>"
+
+    @staticmethod
+    def wrap_for_jepa(tokens: str):
+        bos, eos = OctupleTokenizer.get_bos_eos_tokens()
+        return f"{bos*8} {tokens} {eos*8}"
     
     
 
 
+
+def breakout_octuple(tokens: List[str]):
+    assert len(tokens) % 8 == 0, "Tokens must be a multiple of 8"
+    result = {
+        "bar": [],
+        "pitch": [],
+        "duration": [],
+        "velocity": [],
+        "time_signature_ind": [],
+        "tempo": [],
+        "onset": [],
+        "instrument": [],
+        "time_signature_denom": [],
+        "time_signature_numer": [],
+    }
+
+    for i in range(len(tokens) // 8):
+        first_token = tokens[i * 8]
+
+        if first_token in get_special_tokens():
+            result["bar"].append(None)
+            result["pitch"].append(None)
+            result["duration"].append(None)
+            result["velocity"].append(None)
+            result["time_signature_ind"].append(None)
+            result["tempo"].append(None)
+            result["onset"].append(None)
+            result["instrument"].append(None)
+            result["time_signature_denom"].append(None)
+            result["time_signature_numer"].append(None)
+            continue
+        
+
+        for token in tokens[i * 8: (i + 1) * 8]:
+            if token.startswith("<0-"):
+                result["bar"].append(int(token.split("-")[1][:-1]))
+            elif token.startswith("<1-"):
+                result["onset"].append(int(token.split("-")[1][:-1]))
+            elif token.startswith("<2-"):
+                result["instrument"].append(int(token.split("-")[1][:-1]))
+            elif token.startswith("<3-"):
+                result["pitch"].append(int(token.split("-")[1][:-1]))
+            elif token.startswith("<4-"):
+                result["duration"].append(int(token.split("-")[1][:-1]))
+            elif token.startswith("<5-"):
+                result["velocity"].append(int(token.split("-")[1][:-1]))
+            elif token.startswith("<6-"):
+                result["time_signature_ind"].append(int(token.split("-")[1][:-1]))
+                result["time_signature_denom"].append(ts_list[int(token.split("-")[1][:-1])][1])
+                result["time_signature_numer"].append(ts_list[int(token.split("-")[1][:-1])][0])
+            elif token.startswith("<7-"):
+                result["tempo"].append(int(token.split("-")[1][:-1]))
+            else:
+                raise ValueError(f"Unknown token: {token}")
+        
+    
+    
+    return result
 
 # Extras
 
@@ -479,3 +550,14 @@ if __name__ == "__main__":
     print(events)
     pdb.set_trace()
 
+
+
+
+# TODO: Add a sample script to test the tokenizer
+
+if __name__ == "__main__":
+    tokenizer = OctupleTokenizer("dataset/lmd_full/0/07eb0e9e50e969cf7dc4019125bd59ac.mid")
+    events = tokenizer.get_events()
+    print(events)
+    breakout = breakout_octuple(events)
+    print({k: v[:10] for k, v in breakout.items()})
