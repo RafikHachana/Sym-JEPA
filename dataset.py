@@ -14,6 +14,7 @@ import traceback
 import hashlib
 from input_representation import RemiTokenizer
 from vocab import RemiVocab
+from octuple_tokenizer import breakout_octuple
 from constants import (
   BAR_KEY, POSITION_KEY
 )
@@ -122,19 +123,23 @@ class MidiDataModule(pl.LightningDataModule):
     print(f"Valid dataset size: {len(self.valid_ds)}")
     print(f"Test dataset size: {len(self.test_ds)}")
 
+    bos, eos = self.train_ds.get_bos_eos_events()
+
     self.collator = SeqCollator(
         pad_token=self.vocab.to_i(self.pad_token),
         mask_token=self.vocab.to_i(self.mask_token),
         context_size=self.max_len,
         jepa_context_ratio_start=self.jepa_context_ratio_start,
         jepa_context_ratio_end=self.jepa_context_ratio_end,
-        jepa_context_ratio_steps=self.num_epochs * len(self.train_ds),
+        jepa_context_ratio_steps=self.num_epochs * len(self.train_ds) // self.batch_size,
         use_mask_padding=self.use_mask_padding,
         masking_mode=self.masking_mode,
         masking_probability=self.masking_probability,
         segment_size_ratio=self.segment_size_ratio,
         num_segments=self.num_segments,
-        generate_melody_completion_pairs=self.generate_melody_completion_pairs
+        generate_melody_completion_pairs=self.generate_melody_completion_pairs,
+        bos_token_id=bos,
+        eos_token_id=eos
     )
 
     self.skipped_files = self.train_ds.skipped_files + self.valid_ds.skipped_files + self.test_ds.skipped_files
@@ -191,6 +196,8 @@ class SeqCollator:
                segment_size_ratio=0.1,
                num_segments=3,
                tokenization='remi',
+               bos_token_id=None,
+               eos_token_id=None,
                generate_melody_completion_pairs=False):
     self.pad_token = pad_token
     self.mask_token = mask_token
@@ -207,12 +214,18 @@ class SeqCollator:
     self.tokenization = tokenization
     self.generate_melody_completion_pairs = generate_melody_completion_pairs
 
+    self.bos_token_id = bos_token_id
+    self.eos_token_id = eos_token_id
+
+    self.current_context_ratio_scheduler_step = 0
+
     self.mask_step = 1
     if tokenization == 'octuple':
       self.mask_step = 8
 
-  def ratio_context_step(self, step):
-    new_ratio = self.jepa_context_ratio_start + (self.jepa_context_ratio_end - self.jepa_context_ratio_start) * (step / self.jepa_context_ratio_steps)
+  def ratio_context_step(self):
+    self.current_context_ratio_scheduler_step += 1
+    new_ratio = self.jepa_context_ratio_start + (self.jepa_context_ratio_end - self.jepa_context_ratio_start) * (self.current_context_ratio_scheduler_step / self.jepa_context_ratio_steps)
     self.current_jepa_context_ratio = new_ratio
     return new_ratio
 
@@ -220,18 +233,22 @@ class SeqCollator:
     # IMPORTANT: Only the contiguous masking works with the octuple tokenization
     if self.masking_mode == 'contiguous':
       # Original contiguous masking
-      mask_start = int(seq_length // mask_step * self.current_jepa_context_ratio) * mask_step
+      mask_start = int(seq_length // mask_step * self.current_jepa_context_ratio) * mask_step - mask_step
       assert mask_start % mask_step == 0, f"mask_start {mask_start} is not divisible by mask_step {mask_step}"
       mask = torch.zeros(seq_length, dtype=torch.bool)
       mask[mask_start:] = True
 
     elif self.masking_mode == 'random_contiguous':
       # Random contiguous masking
-      mask_start_max = int(seq_length // mask_step * self.current_jepa_context_ratio) * mask_step
+      mask_start_max = int(seq_length // mask_step * self.current_jepa_context_ratio) * mask_step - mask_step
       assert mask_start_max % mask_step == 0, f"mask_start_max {mask_start_max} is not divisible by mask_step {mask_step}"
-      mask_start = torch.randint(0, mask_start_max, (1,))
+      mask_start = torch.randint(mask_step, mask_start_max, (1,)) // mask_step * mask_step
+      mask_size = int(seq_length // mask_step * (1 - self.current_jepa_context_ratio)) * mask_step
+      # print("Mask size: ", mask_size)
+      # print("Mask start: ", mask_start)
+      # print("Mask end: ", mask_start + mask_size)
       mask = torch.zeros(seq_length, dtype=torch.bool)
-      mask[mask_start:] = True
+      mask[mask_start:mask_start+mask_size] = True
       
     elif self.masking_mode == 'random':
       # Random token masking
@@ -261,13 +278,13 @@ class SeqCollator:
   def __call__(self, features):
     batch = {}
     
-    xs_list = [feature['input_ids'] for feature in features]
+    xs_list = [torch.cat([self.bos_token_id, feature['input_ids'], self.eos_token_id]) for feature in features]
     xs = pad_sequence(xs_list, batch_first=True, padding_value=self.pad_token)
 
-    if self.context_size > 0:
-      max_len = min(self.context_size, xs.size(1))  # Use actual sequence length
-    else:
-      max_len = xs.size(1)
+    # if self.context_size > 0:
+    #   max_len = min(self.context_size, xs.size(1))  # Use actual sequence length
+    # else:
+    max_len = xs.size(1)
 
     if self.use_mask_padding:
       batch_size = xs.size(0)
@@ -302,20 +319,16 @@ class SeqCollator:
 
     batch['context_ids'] = context[:, :max_len]  # Ensure we don't exceed max_len
     batch['target_ids'] = target[:, :max_len]
-    if all(feature['genre_id'] is not None for feature in features):
-      batch['genre_id'] = torch.tensor([feature['genre_id'] for feature in features], dtype=torch.long)
-    else:
-      batch['genre_id'] = None
-
-    if all(feature['style_id'] is not None for feature in features):
-      batch['style_id'] = torch.tensor([feature['style_id'] for feature in features], dtype=torch.long)
-    else:
-      batch['style_id'] = None
+    batch['genre_id'] = torch.tensor([f['genre_id'] for f in features], dtype=torch.float)
+    batch['style_id'] = torch.tensor([f['style_id'] for f in features], dtype=torch.float)
 
     batch['input_ids'] = xs
 
     if self.generate_melody_completion_pairs:
-      batch['melody_completion_start'], batch['melody_completion_end'], batch['melody_completion_match'] = self._generate_melody_completion_pairs(xs_list)
+      (batch['melody_completion_start'],
+      batch['melody_completion_end'],
+      batch['melody_completion_input'],
+      batch['melody_completion_match']) = self._generate_melody_completion_pairs([feature['input_ids'] for feature in features])
     
     return batch
 
@@ -331,7 +344,7 @@ class SeqCollator:
       first_sample = xs_list[start_ind]
       melody_completion_start.append(first_sample[:first_sample.size(0)//2])
 
-      positive_sample = torch.rand(1).item() < 0.5
+      positive_sample = torch.rand(1).item() < 0.1
 
       if positive_sample:
         # Generate a positive sample
@@ -345,9 +358,24 @@ class SeqCollator:
         melody_completion_end.append(second_sample[second_sample.size(0)//2:])
         melody_completion_match.append(0)
 
+    melody_completion_input = []
+    for start, end in zip(melody_completion_start, melody_completion_end):
+        # Concatenate BOS + start + EOS + end + EOS for each sample
+        sample = torch.cat([
+            self.bos_token_id,
+            start,
+            self.eos_token_id,
+            end,
+            self.eos_token_id
+        ])
+        melody_completion_input.append(sample)
+
+    # Pad the sequences to the same length
+    melody_completion_input = pad_sequence(melody_completion_input, batch_first=True, padding_value=self.pad_token)
     return (
       pad_sequence(melody_completion_start, batch_first=True, padding_value=self.pad_token),
       pad_sequence(melody_completion_end, batch_first=True, padding_value=self.pad_token),
+      melody_completion_input,
       torch.tensor(melody_completion_match, dtype=torch.long)
     )
 
@@ -447,6 +475,7 @@ class MidiDataset(torch.utils.data.Dataset):
           if self.bar_token_mask is not None and self.max_bars_per_context > 0:
             events = self.mask_bar_tokens(events, bar_token_mask=self.bar_token_mask)
         
+        octuple_breakout = breakout_octuple(events)
         # Encode tokens with appropriate vocabulary
         event_ids = torch.tensor(self.vocab.encode(events), dtype=torch.long)
 
@@ -475,9 +504,13 @@ class MidiDataset(torch.utils.data.Dataset):
         if self.max_contexts_per_file and self.max_contexts_per_file > 0:
           contexts = contexts[:self.max_contexts_per_file]
 
+        # print("N contexts: ", len(contexts))
+
         for start, end in contexts:
+          # print("Start: ", start, "End: ", end, "File: ", file)
           # Add <bos> and <eos> to each context if contexts are limited to a certain number of bars
           if self.max_bars_per_context and self.max_bars_per_context > 0:
+            # print("Max bars per context: ", self.max_bars_per_context)
             src = torch.cat([bos, event_ids[start:end], eos])
             # b_ids = torch.cat([zero, bar_ids[start:end], zero])
             # p_ids = torch.cat([zero, position_ids[start:end], zero])
@@ -496,20 +529,25 @@ class MidiDataset(torch.utils.data.Dataset):
             # print(f"WARNING: File ID {file_id} is not a valid MD5 checksum")
             file_id = get_md5(file)
 
-          genre = self.genre_map['topmagd'].get(file_id, [None])[0]
-          style = self.genre_map['masd'].get(file_id, [None])[0]
+          genre = self.genre_map['topmagd'].get(file_id, [])
+          style = self.genre_map['masd'].get(file_id, [])
           
-          if genre is None and self.skip_unknown_genres:
+          if len(genre) == 0 and self.skip_unknown_genres:
             continue
 
-          if style is None and self.skip_unknown_styles:
+          if len(style) == 0 and self.skip_unknown_styles:
             continue
 
-          if genre is not None:
-            self.genre_counts[self.genre_to_idx[genre]] += 1
+          if len(genre) > 0:
+            for g in genre:
+              self.genre_counts[self.genre_to_idx[g]] += 1
 
-          if style is not None:
-            self.style_counts[self.style_to_idx[style]] += 1
+          if len(style) > 0:
+            for s in style:
+              self.style_counts[self.style_to_idx[s]] += 1
+
+          genre_id = [self.genre_to_idx[g] for g in genre]
+          style_id = [self.style_to_idx[s] for s in style]
 
           for _ in range(self.sample_count_per_sequence):
             self.data.append({
@@ -518,9 +556,11 @@ class MidiDataset(torch.utils.data.Dataset):
               # 'bar_ids': b_ids,
               'file_id': file_id,
               # 'position_ids': p_ids,
-              'genre_id': self.genre_to_idx[genre] if genre else None,
-              'style_id': self.style_to_idx[style] if style else None,
+              'genre_id': [1 if g in genre_id else 0 for g in range(len(self.all_genres))],
+              'style_id': [1 if s in style_id else 0 for s in range(len(self.all_styles))],
+              'octuple_breakout': {k: v[start//8:end//8] for k, v in octuple_breakout.items()}
             })
+            # print({k: v[:10] for k, v in self.data[-1]['octuple_breakout'].items()})
 
       except ValueError as err:
         # traceback.print_exc()
