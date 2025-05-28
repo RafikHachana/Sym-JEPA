@@ -6,7 +6,7 @@ import math
 import matplotlib.pyplot as plt
 
 
-class Fundamental_Music_Embedding(nn.Module):
+class FundamentalMusicEmbedding(nn.Module):
 	def __init__(self, d_model, base, if_trainable = False, if_translation_bias_trainable = True, device='cpu', type = "se",emb_nn=None,translation_bias_type = "nd"):
 		super().__init__()
 		self.d_model = d_model
@@ -163,9 +163,9 @@ class MusicPositionalEncoding(nn.Module):
 		self.if_global_timing = if_global_timing
 		self.if_modulo_timing = if_modulo_timing
 		self.dropout = nn.Dropout(p=dropout)
-		self.index_embedding = Fundamental_Music_Embedding(d_model = d_model, base=10000, device = device, if_trainable=False, translation_bias_type = None, if_translation_bias_trainable = False, type = "se").cuda()
-		self.global_time_embedding = Fundamental_Music_Embedding(d_model = d_model, base=10001, device = device, if_trainable=False, translation_bias_type = None, if_translation_bias_trainable = False, type = "se").cuda()
-		self.modulo_time_embedding = Fundamental_Music_Embedding(d_model = d_model, base=10001, device = device, if_trainable=False, translation_bias_type = None, if_translation_bias_trainable = False, type = "se").cuda()
+		self.index_embedding = FundamentalMusicEmbedding(d_model = d_model, base=10000, device = device, if_trainable=False, translation_bias_type = None, if_translation_bias_trainable = False, type = "se").cuda()
+		self.global_time_embedding = FundamentalMusicEmbedding(d_model = d_model, base=10001, device = device, if_trainable=False, translation_bias_type = None, if_translation_bias_trainable = False, type = "se").cuda()
+		self.modulo_time_embedding = FundamentalMusicEmbedding(d_model = d_model, base=10001, device = device, if_trainable=False, translation_bias_type = None, if_translation_bias_trainable = False, type = "se").cuda()
 
 		position = torch.arange(max_len).unsqueeze(1)
 		div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
