@@ -198,6 +198,7 @@ class SeqCollator:
                tokenization='remi',
                bos_token_id=None,
                eos_token_id=None,
+               mask_target_input=False,
                generate_melody_completion_pairs=False):
     self.pad_token = pad_token
     self.mask_token = mask_token
@@ -213,7 +214,7 @@ class SeqCollator:
     self.num_segments = num_segments
     self.tokenization = tokenization
     self.generate_melody_completion_pairs = generate_melody_completion_pairs
-
+    self.mask_target_input = mask_target_input
     self.bos_token_id = bos_token_id
     self.eos_token_id = eos_token_id
 
@@ -298,7 +299,8 @@ class SeqCollator:
       
       # Apply masks
       context[masks] = self.mask_token  # Mask target tokens in context
-      target[~masks] = self.mask_token  # Mask context tokens in target
+      if self.mask_target_input:
+        target[~masks] = self.mask_token  # Mask context tokens in target
 
       batch['context_mask'] = masks
       batch['target_mask'] = ~masks
