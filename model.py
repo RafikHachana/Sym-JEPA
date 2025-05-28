@@ -3,11 +3,26 @@ import torch.optim
 import torch.nn as nn
 import math
 from dataset import MidiDataModule
-from vocab import RemiVocab
+from vocab import RemiVocab, OctupleVocab
 from constants import PAD_TOKEN
 from transformers import BertConfig, BertModel
 from copy import deepcopy
 import torch.nn.functional as F
+
+from octuple_tokenizer import token_to_value, get_max_vector
+
+
+
+class Utils:
+    @staticmethod
+    def decode_tokens(tokens, vocab):
+        """
+        Returns a normalized set of 8-dim vectors
+        """
+        unnormalized = torch.tensor([token_to_value(token) for token in vocab.decode(tokens)])
+        max_vector = torch.tensor(get_max_vector(), dtype=torch.float)
+        return unnormalized / max_vector
+
 
 class SymJEPA(pl.LightningModule):
   def __init__(self,
@@ -33,21 +48,36 @@ class SymJEPA(pl.LightningModule):
                vicreg_cov_weight=1.0,
                vicreg_loss_ratio=0.3,
                pass_target_mask_to_predictor=False,
+               fuse_decoded_tokens=False,
                **kwargs):
     super().__init__()
 
     self.tokenization = tokenization
-    self.vocab = RemiVocab()
+    self.vocab = RemiVocab() if tokenization == 'remi' else OctupleVocab()
     self.d_model = d_model
+
     
     # Initialize embeddings based on tokenization method
     if tokenization == 'remi':
         self.remi_in = nn.Embedding(len(self.vocab), self.d_model)
+        if fuse_decoded_tokens:
+           raise ValueError("Remi tokenization does not support fused tokens")
     elif tokenization == 'octuple':
         self.octuple_in = nn.Embedding(len(self.vocab), self.d_model)
         self.octuple_downsampling = nn.Linear(d_model * 8, d_model)
         self.octuple_layer_norm = nn.LayerNorm(d_model)
         self.octuple_dropout = nn.Dropout(0.1)
+
+
+        if fuse_decoded_tokens:
+            self.decoded_tokens_in = nn.Linear(8, d_model)
+            self.decoded_tokens_layer_norm = nn.LayerNorm(d_model)
+            self.decoded_tokens_dropout = nn.Dropout(0.1)
+
+            self.fusion_layer = nn.Linear(d_model * 2, d_model)
+            self.fusion_layer_norm = nn.LayerNorm(d_model)
+            self.fusion_dropout = nn.Dropout(0.1)
+
     else:
         raise ValueError(f"Unknown tokenization method: {tokenization}")
 
@@ -79,7 +109,7 @@ class SymJEPA(pl.LightningModule):
     self.vicreg_cov_weight = vicreg_cov_weight
     self.vicreg_loss_ratio = vicreg_loss_ratio
     self.pass_target_mask_to_predictor = pass_target_mask_to_predictor
-
+    self.fuse_decoded_tokens = fuse_decoded_tokens
 
     if self.pass_target_mask_to_predictor:
       self.target_mask_embedding = nn.Embedding(2, self.d_model)
@@ -115,6 +145,15 @@ class SymJEPA(pl.LightningModule):
       description_options=self.description_options,
       **kwargs
     )
+  
+  def _fuse_decoded_tokens(self, input_ids, context_emb):
+     if self.tokenization == 'remi':
+        raise ValueError("Remi tokenization does not support fused tokens")
+     else:
+        decoded_tokens = self.vocab.decode(input_ids)
+        decoded_projection = self.decoded_tokens_dropout(self.decoded_tokens_layer_norm(self.decoded_tokens_in(decoded_tokens, dim=-1)))
+        fused_emb = self.fusion_dropout(self.fusion_layer_norm(self.fusion_layer(torch.cat([context_emb, decoded_projection], dim=-1))))
+        return fused_emb
 
   def embed(self, input_ids):
     # Context and target IDs should be already masked
@@ -132,6 +171,9 @@ class SymJEPA(pl.LightningModule):
         context_emb = self.octuple_downsampling(x)
         context_emb = self.octuple_layer_norm(context_emb)
         context_emb = self.octuple_dropout(context_emb)
+
+        if self.fuse_decoded_tokens:
+            context_emb = self._fuse_decoded_tokens(input_ids, context_emb)
 
     return context_emb
 

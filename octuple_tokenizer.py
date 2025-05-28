@@ -331,8 +331,27 @@ def get_standard_vocab_tokens():
 
     return tokens
 
+def get_max_vector():
+    return [
+        bar_max,
+        beat_note_factor * max_notes_per_bar * pos_resolution,
+        max_inst + 2,
+        2 * max_pitch + 2,
+        duration_max * pos_resolution,
+        v2e(max_velocity) + 1,
+        len(ts_list),
+        b2e(max_tempo) + 1,
+    ]
+
+
+
 def get_special_tokens():
     return ["<s>", "</s>", "<unk>", "<pad>", "<mask>"]
+
+def token_to_value(token):
+    if token in get_standard_vocab_tokens():
+        return -1
+    return int(token.split('-')[1][:-1])
 
 
 class OctupleVocab(Vocab):
@@ -451,3 +470,12 @@ def encoding_to_MIDI(encoding):
                 miditoolkit.containers.TempoChange(tempo=tempo, time=get_tick(0, i)))
             cur_tp = new_tp
     return midi_obj
+
+
+if __name__ == "__main__":
+    path = 'dataset/clean_midi/AC DC/Highway To Hell.mid'
+    tokenizer = OctupleTokenizer(path)
+    events = MIDI_to_encoding(miditoolkit.midi.parser.MidiFile(path))
+    print(events)
+    pdb.set_trace()
+
