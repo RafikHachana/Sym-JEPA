@@ -341,33 +341,39 @@ class SymJEPA(pl.LightningModule):
         return pred_hidden, target_encoder_hidden, encoder_hidden
     return pred_hidden
     
-  def vicreg_loss(self, context_hidden, target_hidden):
-    # Reshape to [batch_size * seq_len, hidden_dim]
-    x = context_hidden.view(-1, context_hidden.size(-1))
-    y = target_hidden.view(-1, target_hidden.size(-1))
+  def vicreg_loss(self, context_hidden):
+    all_vectors = context_hidden.view(-1, context_hidden.size(-1))
     
-    # Invariance loss (similarity)
-    sim_loss = F.mse_loss(x, y)
+    N_total = all_vectors.size(1)
+    perm = torch.randperm(N_total)
+    z1 = all_vectors[perm[:N_total//2]]
+    z2 = all_vectors[perm[N_total//2:]]
     
-    # Variance loss
-    std_x = torch.sqrt(x.var(dim=0) + 0.0001)
-    std_y = torch.sqrt(y.var(dim=0) + 0.0001)
-    var_loss = torch.mean(F.relu(1 - std_x)) + torch.mean(F.relu(1 - std_y))
-    
-    # Covariance loss
-    x = x - x.mean(dim=0)
-    y = y - y.mean(dim=0)
-    
-    cov_x = (x.T @ x) / (x.shape[0] - 1)
-    cov_y = (y.T @ y) / (y.shape[0] - 1)
-    
-    # Zero out diagonal elements
-    diag_mask = ~torch.eye(cov_x.shape[0], dtype=torch.bool, device=cov_x.device)
-    cov_loss = (cov_x[diag_mask]**2).mean() + (cov_y[diag_mask]**2).mean()
+    N, D = z1.shape
+
+    # Invariance (MSE)
+    inv = F.mse_loss(z1, z2)
+
+    # Combine for stats
+    z = torch.cat([z1, z2], dim=0)
+    z = z - z.mean(dim=0, keepdim=True)
+
+    # Variance term: hinge on per-dim std >= var_target
+    var_target = 1.0
+    std = torch.sqrt(z.var(dim=0) + 1e-5)
+    var_loss = torch.mean(F.relu(var_target - std))
+
+    # Covariance term: off-diagonals of correlation matrix
+    cov = (z.T @ z) / (2 * N - 1)
+    d = torch.diag(cov)
+    inv_s = torch.rsqrt(d + 1e-5)
+    corr = inv_s[:, None] * cov * inv_s[None, :]
+    off_diag = ~torch.eye(D, device=z.device, dtype=torch.bool)
+    cov_loss = corr[off_diag].pow(2).sum() / D
     
     # Combine losses with weights
     total_loss = (
-        self.vicreg_sim_weight * sim_loss + 
+        self.vicreg_sim_weight * inv + 
         self.vicreg_var_weight * var_loss + 
         self.vicreg_cov_weight * cov_loss
     )
@@ -386,7 +392,7 @@ class SymJEPA(pl.LightningModule):
     jepa_loss = self.loss_fn(pred, target)
     
     if self.use_vicreg:
-      vicreg_total, vic_sim, vic_var, vic_cov = self.vicreg_loss(context_hidden, target)
+      vicreg_total, vic_sim, vic_var, vic_cov = self.vicreg_loss(context_hidden)
 
       self.log(f'{fold}_vicreg_loss', vicreg_total, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
       # Dynamic loss weighting
