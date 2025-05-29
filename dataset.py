@@ -346,7 +346,7 @@ class SeqCollator:
       first_sample = xs_list[start_ind]
       melody_completion_start.append(first_sample[:first_sample.size(0)//2])
 
-      positive_sample = torch.rand(1).item() < 0.1
+      positive_sample = torch.rand(1).item() < 0.5
 
       if positive_sample:
         # Generate a positive sample
