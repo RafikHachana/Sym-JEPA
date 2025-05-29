@@ -545,3 +545,38 @@ class SymJEPA(pl.LightningModule):
       'scheduler': scheduler,
       'interval': 'step',
     }]
+
+
+
+class SymJEPAPooler(nn.Module):
+  """
+  Pools using 4 different strategies:
+  - max
+  - mean
+  - CLS
+  - Attentive
+
+  Then fuses all of them together using a linear layer
+  """
+  def __init__(self,
+               d_model=512,
+               **kwargs):
+    super().__init__()
+
+
+    self.attn_score = nn.Linear(d_model, 1)
+
+    self.fuse = nn.Linear(4 * d_model, d_model)
+
+  def forward(self, vectors):
+    cls = vectors[:, 0, :]
+    max = vectors.max(dim=1)
+    mean = vectors.mean(dim=1)
+    attentive = self.attentive_pooling(vectors)
+
+    return self.fuse(torch.cat([cls, max, mean, attentive], dim=1))
+
+  def attentive_pooling(self, vectors):
+    attn = F.softmax(self.attn_score(vectors), dim=-1)
+    return (attn @ vectors).sum(dim=1)
+    
