@@ -10,7 +10,7 @@ import torch
 torch.set_float32_matmul_precision('high')
 
 def train(args):
-    midi_files = glob(os.path.join("dataset/lmd_full", "**/*.mid"), recursive=True)[:1000]
+    midi_files = glob(os.path.join("dataset/lmd_full", "**/*.mid"), recursive=True)[:10000]
     data_module = MelodyPredictionDataModule(
         midi_files,
         batch_size=32,

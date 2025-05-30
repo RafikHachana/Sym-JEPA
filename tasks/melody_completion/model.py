@@ -208,7 +208,7 @@ class MelodyCompletionModel(pl.LightningModule):
                 
                 # Calculate Mean Average Precision
                 ap = self.calculate_ap(combined)
-                print("AP: ", ap)
+                # print("AP: ", ap)
                 all_map.append(ap)
 
                 all_hits_at_1.append(self.hits_at_k(combined, 1))
@@ -216,11 +216,11 @@ class MelodyCompletionModel(pl.LightningModule):
                 all_hits_at_10.append(self.hits_at_k(combined, 10))
                 all_hits_at_25.append(self.hits_at_k(combined, 25))
 
-        print("All MAP: ", all_map)
-        print("All Hits at 1: ", all_hits_at_1)
-        print("All Hits at 5: ", all_hits_at_5)
-        print("All Hits at 10: ", all_hits_at_10)
-        print("All Hits at 25: ", all_hits_at_25)
+        # print("All MAP: ", all_map)
+        # print("All Hits at 1: ", all_hits_at_1)
+        # print("All Hits at 5: ", all_hits_at_5)
+        # print("All Hits at 10: ", all_hits_at_10)
+        # print("All Hits at 25: ", all_hits_at_25)
 
         self.log('val_map', torch.tensor(all_map).mean())
         self.log('val_hits_at_1', torch.tensor(all_hits_at_1).mean())

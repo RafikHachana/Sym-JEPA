@@ -19,7 +19,7 @@ class MelodyPredictionDataModule(pl.LightningDataModule):
 
 
     def setup(self, stage=None):
-        n_train = int(len(self.file_paths) * 0.9)
+        n_train = int(len(self.file_paths) * 0.95)
         n_val = len(self.file_paths) - n_train
         self.train_dataset = MelodyPredictionDataset(self.file_paths[:n_train], negative_pairs_per_positive=1)
         self.val_dataset = MelodyPredictionDataset(self.file_paths[n_train:], negative_pairs_per_positive=49)
@@ -28,7 +28,7 @@ class MelodyPredictionDataModule(pl.LightningDataModule):
         return DataLoader(self.train_dataset, batch_size=self.batch_size, num_workers=self.num_workers, collate_fn=SeqCollator())
 
     def val_dataloader(self):
-        return DataLoader(self.val_dataset, batch_size=self.batch_size, num_workers=self.num_workers, collate_fn=SeqCollator())
+        return DataLoader(self.val_dataset, batch_size=2, num_workers=self.num_workers, collate_fn=SeqCollator())
 
 class SeqCollator:
     def __init__(self, pad_token=0):
