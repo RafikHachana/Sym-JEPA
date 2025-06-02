@@ -569,14 +569,14 @@ class SymJEPAPooler(nn.Module):
     self.fuse = nn.Linear(4 * d_model, d_model)
 
   def forward(self, vectors):
-    cls = vectors[:, 0, :]
-    max = vectors.max(dim=1)
-    mean = vectors.mean(dim=1)
+    cls_token = vectors[:, 0, :]
+    max_token, _ = vectors.max(dim=1)
+    mean_token = vectors.mean(dim=1)
     attentive = self.attentive_pooling(vectors)
 
-    return self.fuse(torch.cat([cls, max, mean, attentive], dim=1))
+    return self.fuse(torch.cat([cls_token, max_token, mean_token, attentive], dim=1))
 
   def attentive_pooling(self, vectors):
-    attn = F.softmax(self.attn_score(vectors), dim=-1)
+    attn = F.softmax(self.attn_score(vectors).squeeze(-1), dim=-1)
     return (attn @ vectors).sum(dim=1)
     
