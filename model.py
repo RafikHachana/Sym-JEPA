@@ -351,7 +351,7 @@ class SymJEPA(pl.LightningModule):
     N, D = z1.shape
 
     # Invariance (MSE)
-    inv = F.mse_loss(z1, z2)
+    sim_loss = inv = F.mse_loss(z1, z2)
 
     # Combine for stats
     z = torch.cat([z1, z2], dim=0)
