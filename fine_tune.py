@@ -47,7 +47,7 @@ def main():
     if args.task == 'genre' or args.task == 'style':
         model = GenreClassificationModel(
             num_classes=len(data_module.train_ds.all_genres) if args.task == 'genre' else len(data_module.train_ds.all_styles),
-            lr=5e-3,
+            lr=1e-3,
             d_model=512,
             encoder_layers=8,
             num_attention_heads=8,
