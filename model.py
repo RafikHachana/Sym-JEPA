@@ -198,8 +198,12 @@ class SymJEPA(pl.LightningModule):
     self.add_onset_positional_encoding = add_onset_positional_encoding
     self.fuse_fme = fuse_fme
     self.use_custom_continuous_tokens = use_custom_continuous_tokens
-    self.positional_encoding = nn.Parameter(torch.zeros(1, 768, d_model))
-    nn.init.xavier_uniform_(self.positional_encoding)
+    position = torch.arange(768).unsqueeze(1)
+    div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+    pe = torch.zeros(1, 768, d_model)
+    pe[0, :, 0::2] = torch.sin(position * div_term)
+    pe[0, :, 1::2] = torch.cos(position * div_term)
+    self.register_buffer('positional_encoding', pe)
 
     if self.add_onset_positional_encoding:
         self.onset_positional_encoding = MusicPositionalEncoding(
