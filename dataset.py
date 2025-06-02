@@ -13,6 +13,7 @@ import json
 import traceback
 import hashlib
 from input_representation import RemiTokenizer
+from octuple_tokenizer import OctupleTokenizer
 from vocab import RemiVocab
 from octuple_tokenizer import breakout_octuple
 from constants import (
@@ -403,7 +404,7 @@ class MidiDataset(torch.utils.data.Dataset):
                bar_token_idx=2,
                use_cache=True,
                print_errors=False,
-               tokenizer_class=RemiTokenizer,
+               tokenizer_class=OctupleTokenizer,
                use_mask_padding=False,
                genre_map_path='metadata/midi_genre_map.json',
                skip_unknown_genres=False,
