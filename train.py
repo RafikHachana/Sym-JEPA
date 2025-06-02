@@ -22,10 +22,10 @@ def add_model_specific_args(parent_parser):
                       help='Tokenization method to use (remi or octuple)')
 
     parser.add_argument("--jepa_context_ratio_start", type=float,
-                       default=float(os.getenv('JEPA_CONTEXT_RATIO_START', 0.975)),
+                       default=float(os.getenv('JEPA_CONTEXT_RATIO_START', 0.6)),
                        help="Ratio of sequence length to use as context at the start of training (default: 0.975)")
     parser.add_argument("--jepa_context_ratio_end", type=float,
-                       default=float(os.getenv('JEPA_CONTEXT_RATIO_END', 0.6)),
+                       default=float(os.getenv('JEPA_CONTEXT_RATIO_END', 0.3)),
                        help="Ratio of sequence length to use as context at the end of training (default: 0.6)")
 
     parser.add_argument("--limit", type=int, default=None,
@@ -127,7 +127,7 @@ def main():
         vicreg_var_weight=args.vicreg_var_weight,
         vicreg_cov_weight=args.vicreg_cov_weight,
         vicreg_loss_ratio=args.vicreg_loss_ratio,
-        lr_schedule='linear',
+        lr_schedule='constant',
         max_steps=len(data_module.train_dataloader()) * args.max_epochs,
         tokenization=args.tokenization,
         pass_target_mask_to_predictor=args.pass_target_mask_to_predictor,
