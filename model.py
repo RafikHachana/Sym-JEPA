@@ -331,7 +331,8 @@ class SymJEPA(pl.LightningModule):
 
         predictor_input = encoder_hidden + self.positional_encoding[:, :encoder_hidden.size(1), :]
         if self.pass_target_mask_to_predictor:
-            latent_var = self.target_mask_embedding(target_mask.to(torch.int)) + self.positional_encoding[:, :target_mask.size(1), :]
+            latent_var = self.positional_encoding[:, :target_mask.size(1), :].repeat(target_mask.size(0), 1, 1)
+            latent_var[target_mask] = 0
             predictor_input = torch.cat([predictor_input, latent_var], dim=1)
 
         pred = self.predictor(inputs_embeds=predictor_input, output_hidden_states=True)
