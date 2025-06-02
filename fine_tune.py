@@ -1,5 +1,5 @@
 from tasks.genre_classification import GenreClassificationModel
-from tasks.melody_completion import MelodyCompletionModel
+from tasks.melody_completion import MelodyCompletionModel, train as train_melody_completion
 from dataset import MidiDataModule
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
@@ -27,7 +27,11 @@ def main():
                       
     args = parser.parse_args()
 
-    midi_files = glob(os.path.join("dataset/lmd_full", "**/*.mid"), recursive=True)[:50000]
+    if args.task == 'melody_completion':
+        train_melody_completion(args)
+        return
+
+    midi_files = glob(os.path.join("dataset/lmd_full", "**/*.mid"), recursive=True)[:100]
     data_module = MidiDataModule(
         midi_files,
         max_len=2048,
