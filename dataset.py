@@ -250,6 +250,10 @@ class SeqCollator:
       # print("Mask end: ", mask_start + mask_size)
       mask = torch.zeros(seq_length, dtype=torch.bool)
       mask[mask_start:mask_start+mask_size] = True
+
+      # TODO: Revert masking: Pick multiple target blocks, then mask the rest as a context mask
+      # target_mask = torch.zeros(seq_length, dtype=torch.bool)
+      # target_mask_start = torch.randint(mask_)
       
     elif self.masking_mode == 'random':
       # Random token masking
