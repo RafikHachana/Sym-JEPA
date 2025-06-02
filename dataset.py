@@ -4,6 +4,7 @@ from torch.nn.utils.rnn import pad_sequence
 import pytorch_lightning as pl
 import math
 import os
+from functools import lru_cache
 import pickle
 import argparse
 from glob import glob
@@ -458,116 +459,7 @@ class MidiDataset(torch.utils.data.Dataset):
     self.skipped_files = []
     for file in tqdm(self.files):
       try:
-        current_file = self.load_file(file)
-        events = current_file['events']
-
-
-        # Identify start of bars
-        if self.tokenization == 'remi':
-          bars, bar_ids = self.get_bars(events, include_ids=True)
-          if len(bars) > self.max_bars:
-            if self.print_errors:
-              print(f"WARNING: REMI sequence has more than {self.max_bars} bars: {len(bars)} event bars.")
-            continue
-
-          # Identify positions
-          position_ids = self.get_positions(events)
-          max_pos = position_ids.max()
-          if max_pos > self.max_positions:
-            if self.print_errors:
-              print(f"WARNING: REMI sequence has more than {self.max_positions} positions: {max_pos.item()} positions found")
-            continue
-
-          # Mask bar tokens if required
-          if self.bar_token_mask is not None and self.max_bars_per_context > 0:
-            events = self.mask_bar_tokens(events, bar_token_mask=self.bar_token_mask)
-        
-        octuple_breakout = breakout_octuple(events)
-        # Encode tokens with appropriate vocabulary
-        event_ids = torch.tensor(self.vocab.encode(events), dtype=torch.long)
-
-        bos, eos = self.get_bos_eos_events()
-        zero = torch.tensor([0], dtype=torch.int)
-
-        if self.max_bars_per_context and self.max_bars_per_context > 0:
-          # Find all indices where a new context starts based on number of bars per context
-          starts = [bars[i] for i in range(0, len(bars), self.max_bars_per_context)]
-          # Convert starts to ranges
-          contexts = list(zip(starts[:-1], starts[1:])) + [(starts[-1], len(event_ids))]
-        else:
-          event_ids = torch.cat([bos, event_ids, eos])
-          # bar_ids = torch.cat([zero, bar_ids, zero])
-          # position_ids = torch.cat([zero, position_ids, zero])
-
-          if self.max_len > 0:
-            starts = list(range(0, len(event_ids), self.max_len+1))
-            if len(starts) > 1:
-              contexts = [(start, start + self.max_len) for start in starts[:-1]] + [(len(event_ids) - self.max_len, len(event_ids))]
-            elif len(starts) > 0:
-              contexts = [(starts[0], self.max_len)]
-          else:
-            contexts = [(0, len(event_ids))]
-
-        if self.max_contexts_per_file and self.max_contexts_per_file > 0:
-          contexts = contexts[:self.max_contexts_per_file]
-
-        # print("N contexts: ", len(contexts))
-
-        for start, end in contexts:
-          # print("Start: ", start, "End: ", end, "File: ", file)
-          # Add <bos> and <eos> to each context if contexts are limited to a certain number of bars
-          if self.max_bars_per_context and self.max_bars_per_context > 0:
-            # print("Max bars per context: ", self.max_bars_per_context)
-            src = torch.cat([bos, event_ids[start:end], eos])
-            # b_ids = torch.cat([zero, bar_ids[start:end], zero])
-            # p_ids = torch.cat([zero, position_ids[start:end], zero])
-          else:
-            src = event_ids[start:end]
-            # b_ids = bar_ids[start:end]
-            # p_ids = position_ids[start:end]
-
-          if self.max_len > 0:
-            src = src[:self.max_len + 1]
-
-          file_id = os.path.basename(file).split('.')[0]
-
-          # Check if file_id is a valid MD5 checksum
-          if not len(file_id) == 32 or not all(c in '0123456789abcdef' for c in file_id.lower()):
-            # print(f"WARNING: File ID {file_id} is not a valid MD5 checksum")
-            file_id = get_md5(file)
-
-          genre = self.genre_map['topmagd'].get(file_id, [])
-          style = self.genre_map['masd'].get(file_id, [])
-          
-          if len(genre) == 0 and self.skip_unknown_genres:
-            continue
-
-          if len(style) == 0 and self.skip_unknown_styles:
-            continue
-
-          if len(genre) > 0:
-            for g in genre:
-              self.genre_counts[self.genre_to_idx[g]] += 1
-
-          if len(style) > 0:
-            for s in style:
-              self.style_counts[self.style_to_idx[s]] += 1
-
-          genre_id = [self.genre_to_idx[g] for g in genre]
-          style_id = [self.style_to_idx[s] for s in style]
-
-          for _ in range(self.sample_count_per_sequence):
-            self.data.append({
-              'input_ids': src,
-              'file': os.path.basename(file),
-              # 'bar_ids': b_ids,
-              'file_id': file_id,
-              # 'position_ids': p_ids,
-              'genre_id': [1 if g in genre_id else 0 for g in range(len(self.all_genres))],
-              'style_id': [1 if s in style_id else 0 for s in range(len(self.all_styles))],
-              'octuple_breakout': {k: v[start//8:end//8] for k, v in octuple_breakout.items()}
-            })
-            # print({k: v[:10] for k, v in self.data[-1]['octuple_breakout'].items()})
+        self.process_file(file, preprocess_mode=True)
 
       except ValueError as err:
         # traceback.print_exc()
@@ -576,11 +468,136 @@ class MidiDataset(torch.utils.data.Dataset):
         self.skipped_files.append(file)
         continue
 
+  @lru_cache(maxsize=5000)
+  def process_file(self, file, preprocess_mode=True, instance_context_idx=None, instance_sample_idx=None):
+    current_file = self.load_file(file)
+    events = current_file['events']
+
+
+    # Identify start of bars  
+    if self.tokenization == 'remi':
+      bars, bar_ids = self.get_bars(events, include_ids=True)
+      if len(bars) > self.max_bars:
+        if self.print_errors:
+          print(f"WARNING: REMI sequence has more than {self.max_bars} bars: {len(bars)} event bars.")
+        raise ValueError(f"REMI sequence has more than {self.max_bars} bars: {len(bars)} event bars.")
+
+      # Identify positions
+      position_ids = self.get_positions(events)
+      max_pos = position_ids.max()
+      if max_pos > self.max_positions:
+        if self.print_errors:
+          print(f"WARNING: REMI sequence has more than {self.max_positions} positions: {max_pos.item()} positions found")
+        raise ValueError(f"REMI sequence has more than {self.max_positions} positions: {max_pos.item()} positions found")
+
+      # Mask bar tokens if required
+      if self.bar_token_mask is not None and self.max_bars_per_context > 0:
+        events = self.mask_bar_tokens(events, bar_token_mask=self.bar_token_mask)
+    
+    octuple_breakout = breakout_octuple(events)
+    # Encode tokens with appropriate vocabulary
+    event_ids = torch.tensor(self.vocab.encode(events), dtype=torch.long)
+
+    bos, eos = self.get_bos_eos_events()
+    zero = torch.tensor([0], dtype=torch.int)
+
+    if self.max_bars_per_context and self.max_bars_per_context > 0:
+      # Find all indices where a new context starts based on number of bars per context
+      starts = [bars[i] for i in range(0, len(bars), self.max_bars_per_context)]
+      # Convert starts to ranges
+      contexts = list(zip(starts[:-1], starts[1:])) + [(starts[-1], len(event_ids))]
+    else:
+      event_ids = torch.cat([bos, event_ids, eos])
+      # bar_ids = torch.cat([zero, bar_ids, zero])
+      # position_ids = torch.cat([zero, position_ids, zero])
+
+      if self.max_len > 0:
+        starts = list(range(0, len(event_ids), self.max_len+1))
+        if len(starts) > 1:
+          contexts = [(start, start + self.max_len) for start in starts[:-1]] + [(len(event_ids) - self.max_len, len(event_ids))]
+        elif len(starts) > 0:
+          contexts = [(starts[0], self.max_len)]
+      else:
+        contexts = [(0, len(event_ids))]
+
+    if self.max_contexts_per_file and self.max_contexts_per_file > 0:
+      contexts = contexts[:self.max_contexts_per_file]
+
+    # print("N contexts: ", len(contexts))
+
+    for context_idx, (start, end) in enumerate(contexts):
+      # print("Start: ", start, "End: ", end, "File: ", file)
+      # Add <bos> and <eos> to each context if contexts are limited to a certain number of bars
+      if self.max_bars_per_context and self.max_bars_per_context > 0:
+        # print("Max bars per context: ", self.max_bars_per_context)
+        src = torch.cat([bos, event_ids[start:end], eos])
+        # b_ids = torch.cat([zero, bar_ids[start:end], zero])
+        # p_ids = torch.cat([zero, position_ids[start:end], zero])
+      else:
+        src = event_ids[start:end]
+        # b_ids = bar_ids[start:end]
+        # p_ids = position_ids[start:end]
+
+      if self.max_len > 0:
+        src = src[:self.max_len + 1]
+
+      file_id = os.path.basename(file).split('.')[0]
+
+      # Check if file_id is a valid MD5 checksum
+      if not len(file_id) == 32 or not all(c in '0123456789abcdef' for c in file_id.lower()):
+        # print(f"WARNING: File ID {file_id} is not a valid MD5 checksum")
+        file_id = get_md5(file)
+
+      genre = self.genre_map['topmagd'].get(file_id, [])
+      style = self.genre_map['masd'].get(file_id, [])
+      
+      if len(genre) == 0 and self.skip_unknown_genres:
+        continue
+
+      if len(style) == 0 and self.skip_unknown_styles:
+        continue
+
+      if len(genre) > 0:
+        for g in genre:
+          self.genre_counts[self.genre_to_idx[g]] += 1
+
+      if len(style) > 0:
+        for s in style:
+          self.style_counts[self.style_to_idx[s]] += 1
+
+      genre_id = [self.genre_to_idx[g] for g in genre]
+      style_id = [self.style_to_idx[s] for s in style]
+
+      for sample_idx in range(self.sample_count_per_sequence):
+        if preprocess_mode:
+          self.data.append({
+            'file_path': file,
+            'context_idx': context_idx,
+            'sample_idx': sample_idx,
+          })
+        else:
+          assert instance_context_idx is not None and instance_sample_idx is not None, "Context and sample indices must be provided when not in preprocess mode"
+          if instance_context_idx == context_idx and instance_sample_idx == sample_idx:
+            return {
+              'input_ids': src,
+              'file': os.path.basename(file),
+              # 'bar_ids': b_ids,
+              'file_id': file_id,
+              # 'position_ids': p_ids,
+              'genre_id': [1 if g in genre_id else 0 for g in range(len(self.all_genres))],
+              'style_id': [1 if s in style_id else 0 for s in range(len(self.all_styles))],
+              'octuple_breakout': {k: v[start//8:end//8] for k, v in octuple_breakout.items()}
+            }
+
   def __len__(self):
     return len(self.data)
 
   def __getitem__(self, idx):
-    return self.data[idx]
+    return self.process_file(self.data[idx]['file_path'], 
+                             preprocess_mode=False, 
+                             instance_context_idx=self.data[idx]['context_idx'], 
+                             instance_sample_idx=self.data[idx]['sample_idx'])
+
 
   def get_bars(self, events, include_ids=False):
     # Seems like we have the bar tokens at this point, so it should be ok to just get them from the sequence
