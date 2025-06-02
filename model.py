@@ -386,6 +386,8 @@ class SymJEPA(pl.LightningModule):
       return_context_encoder_hidden=True,
       context_mask=batch.get('context_mask'),
       target_mask=batch.get('target_mask'))
+
+    # TODO: Mask preds to only keep the positions of masked tokens
     
     # Original JEPA loss
     jepa_loss = self.loss_fn(pred, target)
