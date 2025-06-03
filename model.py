@@ -309,8 +309,11 @@ class SymJEPA(pl.LightningModule):
 
   def encode_context(self, context_ids, context_mask=None):
     context_emb = self.embed(context_ids)
-    
-    out = self.context_encoder(inputs_embeds=context_emb, output_hidden_states=True)
+
+    attention_mask = None
+    if context_mask is not None:
+      attention_mask = context_mask
+    out = self.context_encoder(inputs_embeds=context_emb, output_hidden_states=True, attention_mask=attention_mask)
     encoder_hidden = out.hidden_states[-1]
 
     if context_mask is not None:
@@ -334,12 +337,16 @@ class SymJEPA(pl.LightningModule):
         target_encoder_hidden[target_mask] = 0
 
         predictor_input = encoder_hidden + self.positional_encoding[:, :encoder_hidden.size(1), :]
+        attention_mask = None
         if self.pass_target_mask_to_predictor:
             latent_var = self.positional_encoding[:, :target_mask.size(1), :].repeat(target_mask.size(0), 1, 1)
             latent_var[target_mask] = 0
+
+            attention_mask = torch.cat([context_mask, target_mask], dim=1)
+
             predictor_input = torch.cat([predictor_input, latent_var], dim=1)
 
-        pred = self.predictor(inputs_embeds=predictor_input, output_hidden_states=True)
+        pred = self.predictor(inputs_embeds=predictor_input, output_hidden_states=True, attention_mask=attention_mask)
         pred_hidden = pred.last_hidden_state[:, encoder_hidden.size(1):]
 
         return pred_hidden, target_encoder_hidden, encoder_hidden
@@ -392,10 +399,15 @@ class SymJEPA(pl.LightningModule):
       context_mask=batch.get('context_mask'),
       target_mask=batch.get('target_mask'))
 
-    # TODO: Mask preds to only keep the positions of masked tokens
+
+    pred_masked = pred.clone()
+    pred_masked[batch['target_mask']] = 0
+
+    target_masked = target.clone()
+    target_masked[batch['target_mask']] = 0
     
     # Original JEPA loss
-    jepa_loss = self.loss_fn(pred, target)
+    jepa_loss = self.loss_fn(pred_masked, target_masked)
     
     if self.use_vicreg:
       vicreg_total, vic_sim, vic_var, vic_cov = self.vicreg_loss(context_hidden)
