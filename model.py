@@ -312,7 +312,7 @@ class SymJEPA(pl.LightningModule):
 
     attention_mask = None
     if context_mask is not None:
-      attention_mask = context_mask
+      attention_mask = ~context_mask[:, ::8]
     out = self.context_encoder(inputs_embeds=context_emb, output_hidden_states=True, attention_mask=attention_mask)
     encoder_hidden = out.hidden_states[-1]
 
@@ -342,7 +342,7 @@ class SymJEPA(pl.LightningModule):
             latent_var = self.positional_encoding[:, :target_mask.size(1), :].repeat(target_mask.size(0), 1, 1)
             latent_var[target_mask] = 0
 
-            attention_mask = torch.cat([context_mask, target_mask], dim=1)
+            attention_mask = torch.cat([~context_mask[:, ::8], ~target_mask], dim=1)
 
             predictor_input = torch.cat([predictor_input, latent_var], dim=1)
 
@@ -401,10 +401,10 @@ class SymJEPA(pl.LightningModule):
 
 
     pred_masked = pred.clone()
-    pred_masked[batch['target_mask']] = 0
+    pred_masked[batch['target_mask'][:, ::8]] = 0
 
     target_masked = target.clone()
-    target_masked[batch['target_mask']] = 0
+    target_masked[batch['target_mask'][:, ::8]] = 0
     
     # Original JEPA loss
     jepa_loss = self.loss_fn(pred_masked, target_masked)
