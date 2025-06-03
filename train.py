@@ -127,7 +127,7 @@ def main():
         vicreg_var_weight=args.vicreg_var_weight,
         vicreg_cov_weight=args.vicreg_cov_weight,
         vicreg_loss_ratio=args.vicreg_loss_ratio,
-        lr_schedule='constant',
+        lr_schedule='sqrt_decay',
         max_steps=len(data_module.train_dataloader()) * args.max_epochs,
         tokenization=args.tokenization,
         pass_target_mask_to_predictor=args.pass_target_mask_to_predictor,
