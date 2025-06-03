@@ -536,7 +536,7 @@ class SymJEPA(pl.LightningModule):
 
     if self.lr_schedule == 'sqrt_decay':
       # constant warmup, then 1/sqrt(n) decay starting from the initial LR
-      lr_func = lambda step: min(self.lr, self.lr / math.sqrt(max(step, 1)/self.warmup_steps))
+      lr_func = lambda step: self.lr * min(1, 1/math.sqrt(max(step/self.warmup_steps, 1)))
     elif self.lr_schedule == 'linear':
       # linear warmup, linear decay
       lr_func = lambda step: min(self.lr, self.lr*step/self.warmup_steps, self.lr*(1 - (step - self.warmup_steps)/self.max_steps))
