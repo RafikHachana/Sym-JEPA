@@ -42,8 +42,7 @@ def main():
         jepa_context_ratio_steps=100,
         skip_unknown_genres=args.task == 'genre',
         skip_unknown_styles=args.task == 'style',
-        tokenization=args.tokenization,
-        generate_melody_completion_pairs=args.task == 'melody_completion'
+        tokenization=args.tokenization
     )
 
     data_module.setup()
