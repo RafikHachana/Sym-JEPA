@@ -484,8 +484,10 @@ class MidiDataset(torch.utils.data.Dataset):
         # b_ids = bar_ids[start:end]
         # p_ids = position_ids[start:end]
 
+
       if self.max_len > 0:
-        src = src[:self.max_len + 1]
+        src = src[:self.max_len+16]
+
 
       file_id = os.path.basename(file).split('.')[0]
 
