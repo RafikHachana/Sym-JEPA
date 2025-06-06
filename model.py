@@ -311,8 +311,8 @@ class SymJEPA(pl.LightningModule):
     context_emb = self.embed(context_ids)
 
     attention_mask = None
-    if context_mask is not None:
-      attention_mask = ~context_mask[:, ::8]
+    # if context_mask is not None:
+    #   attention_mask = ~context_mask[:, ::8]
     out = self.context_encoder(inputs_embeds=context_emb, output_hidden_states=True, attention_mask=attention_mask)
     encoder_hidden = out.hidden_states[-1]
 
@@ -342,7 +342,7 @@ class SymJEPA(pl.LightningModule):
             latent_var = self.positional_encoding[:, :target_mask.size(1), :].repeat(target_mask.size(0), 1, 1)
             latent_var[target_mask] = 0
 
-            attention_mask = torch.cat([~context_mask[:, ::8], ~target_mask], dim=1)
+            attention_mask = torch.cat([torch.ones_like(context_mask[:, ::8]), ~target_mask], dim=1)
 
             predictor_input = torch.cat([predictor_input, latent_var], dim=1)
 
