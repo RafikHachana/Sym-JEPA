@@ -51,9 +51,9 @@ def add_model_specific_args(parent_parser):
                        help="Number of segments to mask in segments mode")
     parser.add_argument("--use_vicreg", action="store_true",
                        help="Use VicReg loss in addition to JEPA loss")
-    parser.add_argument("--vicreg_sim_weight", type=float, default=25.0,
+    parser.add_argument("--vicreg_sim_weight", type=float, default=1.0,
                        help="Weight for VicReg similarity loss")
-    parser.add_argument("--vicreg_var_weight", type=float, default=25.0,
+    parser.add_argument("--vicreg_var_weight", type=float, default=50.0,
                        help="Weight for VicReg variance loss")
     parser.add_argument("--vicreg_cov_weight", type=float, default=1.0,
                        help="Weight for VicReg covariance loss")
