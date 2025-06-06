@@ -239,6 +239,8 @@ class SymJEPA(pl.LightningModule):
     self.context_encoder = BertModel(encoder_config)
 
     self.target_encoder = deepcopy(self.context_encoder)
+    for p in self.target_encoder.parameters():
+        p.requires_grad = False
 
     self.predictor = BertModel(predictor_config)
   
@@ -330,7 +332,7 @@ class SymJEPA(pl.LightningModule):
             target_emb = self.embed(target_ids)
             target_emb = target_emb + self.positional_encoding[:, :target_emb.size(1), :]
             out = self.target_encoder(inputs_embeds=target_emb, output_hidden_states=True)
-            target_encoder_hidden = out.last_hidden_state
+            target_encoder_hidden = out.last_hidden_state.detach()
 
         if self.tokenization == 'octuple':
             target_mask = target_mask[:, ::8]
