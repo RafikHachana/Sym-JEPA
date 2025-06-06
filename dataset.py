@@ -309,17 +309,7 @@ class SeqCollator:
       
     else:
       # Original padding method
-      jepa_context_size = int(xs.size(1) * self.current_jepa_context_ratio)
-      context = xs[:, :jepa_context_size]
-      target = xs[:, jepa_context_size:]
-      
-      # Pad to max_len
-      if context.size(1) < max_len:
-          pad_size = max_len - context.size(1)
-          context = torch.nn.functional.pad(context, (0, pad_size), value=self.pad_token)
-      if target.size(1) < max_len:
-          pad_size = max_len - target.size(1)
-          target = torch.nn.functional.pad(target, (0, pad_size), value=self.pad_token)
+      context, target = self._legacy_pad_masking(xs, max_len)
 
     batch['context_ids'] = context[:, :max_len]  # Ensure we don't exceed max_len
     batch['target_ids'] = target[:, :max_len]
@@ -329,7 +319,21 @@ class SeqCollator:
     batch['input_ids'] = xs
     
     return batch
+  
+  def _legacy_pad_masking(self, xs, max_len):
+    jepa_context_size = int(xs.size(1) * self.current_jepa_context_ratio)
+    context = xs[:, :jepa_context_size]
+    target = xs[:, jepa_context_size:]
+    
+    # Pad to max_len
+    if context.size(1) < max_len:
+        pad_size = max_len - context.size(1)
+        context = torch.nn.functional.pad(context, (0, pad_size), value=self.pad_token)
+    if target.size(1) < max_len:
+        pad_size = max_len - target.size(1)
+        target = torch.nn.functional.pad(target, (0, pad_size), value=self.pad_token)
 
+    return context, target
 
 
 
