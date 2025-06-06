@@ -281,7 +281,7 @@ class SeqCollator:
   def __call__(self, features):
     batch = {}
     
-    xs_list = [torch.cat([self.bos_token_id, feature['input_ids'], self.eos_token_id]) for feature in features]
+    xs_list = [feature['input_ids'] for feature in features]
     xs = pad_sequence(xs_list, batch_first=True, padding_value=self.pad_token)
 
     # if self.context_size > 0:
@@ -476,7 +476,7 @@ class MidiDataset(torch.utils.data.Dataset):
         # b_ids = torch.cat([zero, bar_ids[start:end], zero])
         # p_ids = torch.cat([zero, position_ids[start:end], zero])
       else:
-        src = event_ids[start:end]
+        src = torch.cat([bos, event_ids[start:end], eos])
         # b_ids = bar_ids[start:end]
         # p_ids = position_ids[start:end]
 
