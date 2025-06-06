@@ -407,6 +407,10 @@ class SymJEPA(pl.LightningModule):
 
     target_masked = target.clone()
     target_masked[batch['target_mask'][:, ::8]] = 0
+
+    # Normalize all vectors to unit norm
+    pred_masked = F.normalize(pred_masked, p=2, dim=-1)
+    target_masked = F.normalize(target_masked, p=2, dim=-1)
     
     # Original JEPA loss
     jepa_loss = self.loss_fn(pred_masked, target_masked)
