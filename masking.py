@@ -7,6 +7,8 @@ import torch
 transpose_range = 12
 instrument_range = 128
 
+# TODO: Add drums to instrument range
+
 def _get_transpose_id(semitones):
     return (semitones + transpose_range) % transpose_range +1
 
@@ -42,14 +44,17 @@ def contiguous_masking(input_ids, octuple_breakout, context_ratio=0.5):
     mask[mask_start:mask_start+mask_size] = True
 
     target_mask_start = torch.randint(mask_start.item() // mask_step, (mask_start.item() + mask_size) // mask_step, (1,)) * mask_step
-    target_mask_size = torch.randint(1, (mask_start.item() + mask_size - target_mask_start.item()) // mask_step, (1,)) * mask_step
+    try:
+        target_mask_size = torch.randint(1, (mask_start.item() + mask_size - target_mask_start.item()) // mask_step, (1,)) * mask_step
+    except:
+        target_mask_size = 8
     target_mask = torch.ones(seq_length, dtype=torch.bool)
     target_mask[target_mask_start:target_mask_start+target_mask_size] = False
 
     return mask, target_mask, input_ids, 0
 
 def instrument_masking(input_ids, octuple_breakout):
-    unique_instruments = list(set([x for x in octuple_breakout["instrument"] if x is not None]))
+    unique_instruments = list(set([x for x in octuple_breakout["instrument"] if x is not None and x < instrument_range]))
 
     if len(unique_instruments) == 1:
         # Fallback to random masking
@@ -109,7 +114,7 @@ def rhythmic_noise_masking(input_ids, octuple_breakout):
 def mask_pitch_classes(input_ids, octuple_breakout):
     pitch_classes = list(set([x % 12 for x in octuple_breakout['pitch'] if x is not None and x <= 127]))
 
-    if len(pitch_classes) == 1:
+    if len(pitch_classes) <= 1:
         # Fallback to random masking
         return random_masking(input_ids, octuple_breakout)
 
@@ -131,7 +136,7 @@ def mask_pitch_classes(input_ids, octuple_breakout):
 def mask_octaves(input_ids, octuple_breakout):
     octaves = list(set([x // 12 for x in octuple_breakout['pitch'] if x is not None and x <= 127]))
 
-    if len(octaves) == 1:
+    if len(octaves) <= 1:
         # Fallback to random masking
         return random_masking(input_ids, octuple_breakout)
     
@@ -155,7 +160,7 @@ class RandomMaskGenerator:
     def __init__(self, probs: Dict[str, float]):
         self.probs = probs
 
-        assert sum(self.probs.values()) == 1.0, f"Probabilities must sum to 1.0, got {sum(self.probs.values())}"
+        assert abs(sum(self.probs.values()) - 1.0) < 1e-8, f"Probabilities must sum to 1.0, got {sum(self.probs.values())}"
 
         self.mask_functions = {
             "random": random_masking,
@@ -171,7 +176,6 @@ class RandomMaskGenerator:
 
     def __call__(self, input_ids, octuple_breakout, random_mask_prob=0.1, contiguous_context_ratio=0.5) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int, str]:
         mask_function = random.choices(list(self.probs.keys()), weights=list(self.probs.values()))[0]
-        print(f"Masking with {mask_function}")
         if mask_function == "random":
             result = self.mask_functions[mask_function](input_ids, octuple_breakout, mask_prob=random_mask_prob)
         elif mask_function == "contiguous":

@@ -225,7 +225,7 @@ class SeqCollator:
       "pitch_classes": prob,
       "rhythmic_noise": prob,
       "contiguous": prob,
-      "random": prob,
+      "random": 1- 6*prob,
     })
 
     self.current_context_ratio_scheduler_step = 0
@@ -326,7 +326,7 @@ class SeqCollator:
       context_masks = torch.stack(context_masks)
       target_masks = torch.stack(target_masks)
       new_input_ids = torch.stack(new_input_ids)
-      latent_var_ids = torch.stack(latent_var_ids)
+      latent_var_ids = torch.tensor(latent_var_ids, dtype=torch.long)
 
       
       # # Create masked versions for context and target
@@ -346,7 +346,7 @@ class SeqCollator:
       batch['context_ids'][context_masks] = self.mask_token
       batch['target_ids'] = new_input_ids.clone()
       batch['target_ids'][target_masks] = self.mask_token
-      batch['latent_var_ids'] = latent_var_ids.unsqueeze(-1).repeat(1, 1, xs.size(1))
+      batch['latent_var_ids'] = latent_var_ids.unsqueeze(-1).repeat(1, xs.size(1) // 8)
 
       # batch['context_mask'] = masks
       # batch['target_mask'] = ~masks
