@@ -454,8 +454,11 @@ class SymJEPA(pl.LightningModule):
     
     for f in mask_method_losses:
         mask_method_losses[f] = torch.stack(mask_method_losses[f]).mean()
-        self.log(f'{fold}_mask_method_loss_{f}', mask_method_losses[f], on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-    
+        self.log(f'{fold}_mask_method_loss_{f}', mask_method_losses[f], on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
+
+    # Average per dimension variance of the context
+    context_var = torch.var(context_hidden, dim=-1).mean(-1)
+    self.log(f'{fold}_mean_perdim_context_var', context_var, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
     return jepa_loss
 
   def on_train_batch_start(self, batch, batch_idx):
