@@ -8,10 +8,10 @@ transpose_range = 12
 instrument_range = 128
 
 def _get_transpose_id(semitones):
-    return (semitones + transpose_range) % transpose_range
+    return (semitones + transpose_range) % transpose_range +1
 
 def _get_instrument_id(instrument):
-    return instrument + transpose_range
+    return instrument + transpose_range + 1
 
 def random_masking(input_ids, octuple_breakout, mask_prob=0.1):
     """

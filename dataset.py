@@ -22,6 +22,7 @@ from constants import (
   BAR_KEY, POSITION_KEY
 )
 from tqdm import tqdm
+from masking import RandomMaskGenerator
 
 
 CACHE_PATH = os.getenv('CACHE_PATH', os.getenv('SCRATCH', os.getenv('TMPDIR', './temp')))
@@ -216,6 +217,17 @@ class SeqCollator:
     self.bos_token_id = bos_token_id
     self.eos_token_id = eos_token_id
 
+    prob = 1/7
+    self.mask_generator = RandomMaskGenerator({
+      "transpose": prob,
+      "instrument": prob,
+      "octaves": prob,
+      "pitch_classes": prob,
+      "rhythmic_noise": prob,
+      "contiguous": prob,
+      "random": prob,
+    })
+
     self.current_context_ratio_scheduler_step = 0
 
     self.mask_step = 1
@@ -228,55 +240,55 @@ class SeqCollator:
     self.current_jepa_context_ratio = new_ratio
     return new_ratio
 
-  def create_masks(self, seq_length, mask_step=1):
-    # IMPORTANT: Only the contiguous masking works with the octuple tokenization
-    if self.masking_mode == 'contiguous':
-      # Original contiguous masking
-      mask_start = int(seq_length // mask_step * self.current_jepa_context_ratio) * mask_step - mask_step
-      assert mask_start % mask_step == 0, f"mask_start {mask_start} is not divisible by mask_step {mask_step}"
-      mask = torch.zeros(seq_length, dtype=torch.bool)
-      mask[mask_start:] = True
+  # def create_masks(self, seq_length, mask_step=1):
+  #   # IMPORTANT: Only the contiguous masking works with the octuple tokenization
+  #   if self.masking_mode == 'contiguous':
+  #     # Original contiguous masking
+  #     mask_start = int(seq_length // mask_step * self.current_jepa_context_ratio) * mask_step - mask_step
+  #     assert mask_start % mask_step == 0, f"mask_start {mask_start} is not divisible by mask_step {mask_step}"
+  #     mask = torch.zeros(seq_length, dtype=torch.bool)
+  #     mask[mask_start:] = True
 
-    elif self.masking_mode == 'random_contiguous':
-      # Random contiguous masking
-      mask_start_max = int(seq_length // mask_step * self.current_jepa_context_ratio) * mask_step - mask_step
-      assert mask_start_max % mask_step == 0, f"mask_start_max {mask_start_max} is not divisible by mask_step {mask_step}"
-      mask_start = torch.randint(mask_step, mask_start_max, (1,)) // mask_step * mask_step
-      mask_size = int(seq_length // mask_step * (1 - self.current_jepa_context_ratio)) * mask_step
-      # print("Mask size: ", mask_size)
-      # print("Mask start: ", mask_start)
-      # print("Mask end: ", mask_start + mask_size)
-      mask = torch.zeros(seq_length, dtype=torch.bool)
-      mask[mask_start:mask_start+mask_size] = True
+  #   elif self.masking_mode == 'random_contiguous':
+  #     # Random contiguous masking
+  #     mask_start_max = int(seq_length // mask_step * self.current_jepa_context_ratio) * mask_step - mask_step
+  #     assert mask_start_max % mask_step == 0, f"mask_start_max {mask_start_max} is not divisible by mask_step {mask_step}"
+  #     mask_start = torch.randint(mask_step, mask_start_max, (1,)) // mask_step * mask_step
+  #     mask_size = int(seq_length // mask_step * (1 - self.current_jepa_context_ratio)) * mask_step
+  #     # print("Mask size: ", mask_size)
+  #     # print("Mask start: ", mask_start)
+  #     # print("Mask end: ", mask_start + mask_size)
+  #     mask = torch.zeros(seq_length, dtype=torch.bool)
+  #     mask[mask_start:mask_start+mask_size] = True
 
-      # TODO: Revert masking: Pick multiple target blocks, then mask the rest as a context mask
-      # target_mask = torch.zeros(seq_length, dtype=torch.bool)
-      # target_mask_start = torch.randint(mask_)
+  #     # TODO: Revert masking: Pick multiple target blocks, then mask the rest as a context mask
+  #     # target_mask = torch.zeros(seq_length, dtype=torch.bool)
+  #     # target_mask_start = torch.randint(mask_)
       
-    elif self.masking_mode == 'random':
-      # Random token masking
-      mask = torch.rand(seq_length) < self.masking_probability
+  #   elif self.masking_mode == 'random':
+  #     # Random token masking
+  #     mask = torch.rand(seq_length) < self.masking_probability
       
-    elif self.masking_mode == 'segments':
-      # Non-overlapping segments
-      mask = torch.zeros(seq_length, dtype=torch.bool)
-      segment_size = int(seq_length * self.segment_size_ratio)
-      valid_starts = list(range(0, seq_length - segment_size))
+  #   elif self.masking_mode == 'segments':
+  #     # Non-overlapping segments
+  #     mask = torch.zeros(seq_length, dtype=torch.bool)
+  #     segment_size = int(seq_length * self.segment_size_ratio)
+  #     valid_starts = list(range(0, seq_length - segment_size))
       
-      # Randomly select start positions for segments
-      if len(valid_starts) >= self.num_segments:
-        start_positions = torch.tensor(
-            sorted(np.random.choice(valid_starts, self.num_segments, replace=False))
-        )
+  #     # Randomly select start positions for segments
+  #     if len(valid_starts) >= self.num_segments:
+  #       start_positions = torch.tensor(
+  #           sorted(np.random.choice(valid_starts, self.num_segments, replace=False))
+  #       )
         
-        # Create masks for each segment
-        for start in start_positions:
-          mask[start:start + segment_size] = True
-      else:
-        # Fallback to random masking if sequence is too short
-        mask = torch.rand(seq_length) < self.masking_probability
+  #       # Create masks for each segment
+  #       for start in start_positions:
+  #         mask[start:start + segment_size] = True
+  #     else:
+  #       # Fallback to random masking if sequence is too short
+  #       mask = torch.rand(seq_length) < self.masking_probability
     
-    return mask
+  #   return mask
 
   def __call__(self, features):
     batch = {}
@@ -292,31 +304,65 @@ class SeqCollator:
     if self.use_mask_padding:
       batch_size = xs.size(0)
       # Create masks using actual sequence length
-      masks = [self.create_masks(xs.size(1), mask_step=self.mask_step) for _ in range(batch_size)]
-      masks = torch.stack(masks)
+      context_masks = []
+      target_masks = []
+      new_input_ids = []
+      latent_var_ids = []
+      mask_functions = []
       
-      # Create masked versions for context and target
-      context = xs.clone()
-      target = xs.clone()
-      
-      # Apply masks
-      context[masks] = self.mask_token  # Mask target tokens in context
-      if self.mask_target_input:
-        target[~masks] = self.mask_token  # Mask context tokens in target
 
-      batch['context_mask'] = masks
-      batch['target_mask'] = ~masks
+      for i in range(batch_size):
+        ctx, tgt, new_ids, latent_var_id, mask_function = self.mask_generator(xs[i],
+                                                                              features[i]['octuple_breakout'],
+                                                                              random_mask_prob=0.1,
+                                                                              contiguous_context_ratio=self.current_jepa_context_ratio)
+        
+        context_masks.append(ctx)
+        target_masks.append(tgt)
+        new_input_ids.append(new_ids)
+        latent_var_ids.append(latent_var_id)
+        mask_functions.append(mask_function)
+      
+      context_masks = torch.stack(context_masks)
+      target_masks = torch.stack(target_masks)
+      new_input_ids = torch.stack(new_input_ids)
+      latent_var_ids = torch.stack(latent_var_ids)
+
+      
+      # # Create masked versions for context and target
+      # context = xs.clone()
+      # target = xs.clone()
+      
+      # # Apply masks
+      # context[masks] = self.mask_token  # Mask target tokens in context
+      # if self.mask_target_input:
+      #   target[~masks] = self.mask_token  # Mask context tokens in target
+      batch['mask_functions'] = mask_functions
+      batch['input_ids'] = new_input_ids
+      batch['context_mask'] = context_masks
+      batch['target_mask'] = target_masks
+
+      batch['context_ids'] = new_input_ids.clone()
+      batch['context_ids'][context_masks] = self.mask_token
+      batch['target_ids'] = new_input_ids.clone()
+      batch['target_ids'][target_masks] = self.mask_token
+      batch['latent_var_ids'] = latent_var_ids.unsqueeze(-1).repeat(1, 1, xs.size(1))
+
+      # batch['context_mask'] = masks
+      # batch['target_mask'] = ~masks
       
     else:
       # Original padding method
       context, target = self._legacy_pad_masking(xs, max_len)
 
-    batch['context_ids'] = context[:, :max_len]  # Ensure we don't exceed max_len
-    batch['target_ids'] = target[:, :max_len]
+      batch['context_ids'] = context[:, :max_len]  # Ensure we don't exceed max_len
+      batch['target_ids'] = target[:, :max_len]
+      batch['input_ids'] = xs
+    
+    
     batch['genre_id'] = torch.tensor([f['genre_id'] for f in features], dtype=torch.float)
     batch['style_id'] = torch.tensor([f['style_id'] for f in features], dtype=torch.float)
 
-    batch['input_ids'] = xs
     
     return batch
   

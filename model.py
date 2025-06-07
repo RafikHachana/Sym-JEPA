@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from octuple_tokenizer import token_to_value, get_max_vector, OctupleVocab, max_pitch, bar_max, max_inst, ts_list
 from positional_encoding import MusicPositionalEncoding, FundamentalMusicEmbedding
 import pdb
+from masking import transpose_range, instrument_range
 
 class Utils:
     @staticmethod
@@ -50,11 +51,11 @@ class Utils:
 
     @staticmethod
     def get_continuous_token_size():
-        return int(ceil(log2(max_bars))) + 5 + 12 + max_pitch + max_inst + len(ts_list)
+        return int(math.ceil(math.log2(max_bars))) + 5 + 12 + max_pitch + max_inst + len(ts_list)
     @staticmethod
     def get_continuous_tokens(decoded_tokens):
         bar = decoded_tokens[:, :, 0]
-        bar_binary_rep_size = int(ceil(log2(max_bars)))
+        bar_binary_rep_size = int(math.ceil(math.log2(max_bars)))
         bar_binary_representation = torch.zeros(bar.shape[0], bar.shape[1], bar_binary_rep_size, device=bar.device)
         for i in range(bar_binary_rep_size):
             bar_binary_representation[:, :, i] = (bar >> i) & 1
@@ -243,6 +244,8 @@ class SymJEPA(pl.LightningModule):
         p.requires_grad = False
 
     self.predictor = BertModel(predictor_config)
+
+    self.latent_var_in = nn.Embedding(transpose_range + instrument_range + 1, self.d_model)
   
   def _fuse_decoded_tokens(self, decoded_tokens, context_emb):
      if self.tokenization == 'remi':
@@ -324,7 +327,7 @@ class SymJEPA(pl.LightningModule):
       encoder_hidden[context_mask] = 0
     return encoder_hidden
 
-  def forward(self, context_ids, target_ids=None, return_context_encoder_hidden=False, context_mask=None, target_mask=None):
+  def forward(self, context_ids, target_ids=None, return_context_encoder_hidden=False, context_mask=None, target_mask=None, latent_var_ids=None):
     encoder_hidden = self.encode_context(context_ids, context_mask)
 
     if target_ids is not None:
@@ -341,7 +344,8 @@ class SymJEPA(pl.LightningModule):
         predictor_input = encoder_hidden + self.positional_encoding[:, :encoder_hidden.size(1), :]
         attention_mask = None
         if self.pass_target_mask_to_predictor:
-            latent_var = self.positional_encoding[:, :target_mask.size(1), :].repeat(target_mask.size(0), 1, 1)
+            latent_var = self.latent_var_in(latent_var_ids)
+            latent_var = latent_var + self.positional_encoding[:, :latent_var.size(1), :].repeat(latent_var.size(0), 1, 1)
             latent_var[target_mask] = 0
 
             attention_mask = torch.cat([torch.ones_like(context_mask[:, ::8]), ~target_mask], dim=1)
@@ -399,7 +403,8 @@ class SymJEPA(pl.LightningModule):
       batch['target_ids'],
       return_context_encoder_hidden=True,
       context_mask=batch.get('context_mask'),
-      target_mask=batch.get('target_mask'))
+      target_mask=batch.get('target_mask'),
+      latent_var_ids=batch.get('latent_var_ids'))
 
 
     pred_masked = pred.clone()
@@ -437,6 +442,19 @@ class SymJEPA(pl.LightningModule):
       self.log(f'{fold}_jepa_loss', jepa_loss, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
       
       return total_loss
+    
+    # JEPA loss per masking method
+    mask_method_losses = {}
+
+    for i, f in enumerate(batch['mask_functions']):
+        if f not in mask_method_losses:
+            mask_method_losses[f] = []
+        with torch.no_grad():
+          mask_method_losses[f].append(self.loss_fn(pred_masked[i], target_masked[i]))
+    
+    for f in mask_method_losses:
+        mask_method_losses[f] = torch.stack(mask_method_losses[f]).mean()
+        self.log(f'{fold}_mask_method_loss_{f}', mask_method_losses[f], on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
     
     return jepa_loss
 

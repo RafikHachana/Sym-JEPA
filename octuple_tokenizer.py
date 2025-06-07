@@ -197,7 +197,7 @@ def MIDI_to_encoding(midi_obj):
             start_distribution[time_to_pos(note.start) % pos_resolution] += 1
             info = pos_to_info[time_to_pos(note.start)]
 
-            print("Onset", time_to_pos(note.start), "End", time_to_pos(note.end))
+            # print("Onset", time_to_pos(note.start), "End", time_to_pos(note.end))
             # The structure is here
             encoding.append((info[0], info[2], max_inst + 1 if inst.is_drum else inst.program, note.pitch + max_pitch +
                              1 if inst.is_drum else note.pitch, d2e(time_to_pos(note.end) - time_to_pos(note.start)), v2e(note.velocity), info[1], info[3]))
