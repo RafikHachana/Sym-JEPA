@@ -114,6 +114,7 @@ class SymJEPA(pl.LightningModule):
                fuse_decoded_tokens=True,
                add_onset_positional_encoding=True,
                fuse_fme=True,
+               use_cosine_loss=True,
                use_custom_continuous_tokens=False,
                **kwargs):
     super().__init__()
@@ -178,8 +179,12 @@ class SymJEPA(pl.LightningModule):
     
     self.max_bars = self.context_size
     self.max_positions = 512
+    self.use_cosine_loss = use_cosine_loss
 
-    self.loss_fn = nn.SmoothL1Loss()
+    if self.use_cosine_loss:
+       self.loss_fn = nn.CosineEmbeddingLoss(reduction='mean')
+    else:
+       self.loss_fn = nn.SmoothL1Loss()
 
     # Store just the EMA parameters
     self.ema = ema
@@ -418,7 +423,10 @@ class SymJEPA(pl.LightningModule):
     target_masked = F.normalize(target_masked, p=2, dim=-1)
     
     # Original JEPA loss
-    jepa_loss = self.loss_fn(pred_masked, target_masked)
+    if self.use_cosine_loss:
+      jepa_loss = self.loss_fn(pred_masked, target_masked, torch.ones(pred_masked.size()[:-1]).to(self.device))
+    else:
+      jepa_loss = self.loss_fn(pred_masked, target_masked)
     
     if self.use_vicreg:
       vicreg_total, vic_sim, vic_var, vic_cov = self.vicreg_loss(context_hidden)
