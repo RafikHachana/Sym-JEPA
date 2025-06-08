@@ -110,6 +110,7 @@ class SymJEPA(pl.LightningModule):
                vicreg_var_weight=25.0,
                vicreg_cov_weight=1.0,
                vicreg_loss_ratio=0.3,
+               info_nce_loss_weight=0.1,
                pass_target_mask_to_predictor=False,
                fuse_decoded_tokens=True,
                add_onset_positional_encoding=True,
@@ -171,6 +172,10 @@ class SymJEPA(pl.LightningModule):
     self.description_options = description_options
 
     self.context_size = context_size
+
+    self.info_nce_loss_weight = info_nce_loss_weight
+    self.info_nce_loss_memory_context = []
+    self.info_nce_loss_memory_target = []
 
     self.lr = lr
     self.lr_schedule = lr_schedule
@@ -448,25 +453,50 @@ class SymJEPA(pl.LightningModule):
       # Combine losses
       total_loss = jepa_loss + vicreg_total
       self.log(f'{fold}_jepa_loss', jepa_loss, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+
+      self.info_nce_loss_memory_context.append(pred_masked[~batch['target_mask'][:, ::8]].view(-1, pred_masked.size(-1)))
+      self.info_nce_loss_memory_target.append(target_masked[~batch['target_mask'][:, ::8]].view(-1, target_masked.size(-1)))
+      # Info NCE loss
+      if len(self.info_nce_loss_memory_context) > 5:
+          info_nce_loss = torch.stack(self.info_nce_loss_memory_context).mean()
+
+          TEMPERATURE = 0.1
+          logits_context = torch.matmul(self.info_nce_loss_memory_context, self.info_nce_loss_memory_target.T) / TEMPERATURE
+
+          labels = torch.arange(logits_context.size(0), device=self.device)
+          loss_fct = nn.CrossEntropyLoss()
+          info_nce_loss = loss_fct(logits_context, labels)
+
+          self.log(f'{fold}_info_nce_loss', info_nce_loss, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+
+          self.info_nce_loss_memory_context.pop(0)
+          self.info_nce_loss_memory_target.pop(0)
+
       
+      total_loss = jepa_loss + self.info_nce_loss_weight * info_nce_loss
+
+      # self.log(f'{fold}_total_loss', total_loss, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+    
+      # JEPA loss per masking method
+      mask_method_losses = {}
+
+      for i, f in enumerate(batch['mask_functions']):
+          if f not in mask_method_losses:
+              mask_method_losses[f] = []
+          with torch.no_grad():
+            mask_method_losses[f].append(self.loss_fn(pred_masked[i], target_masked[i]))
+      
+      for f in mask_method_losses:
+          mask_method_losses[f] = torch.stack(mask_method_losses[f]).mean()
+          self.log(f'{fold}_mask_method_loss_{f}', mask_method_losses[f], on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
+
+      # Average per dimension variance of the context
+      context_var = torch.var(context_hidden, dim=-1).mean(-1)
+      self.log(f'{fold}_mean_perdim_context_var', context_var, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
+
+
+
       return total_loss
-    
-    # JEPA loss per masking method
-    mask_method_losses = {}
-
-    for i, f in enumerate(batch['mask_functions']):
-        if f not in mask_method_losses:
-            mask_method_losses[f] = []
-        with torch.no_grad():
-          mask_method_losses[f].append(self.loss_fn(pred_masked[i], target_masked[i]))
-    
-    for f in mask_method_losses:
-        mask_method_losses[f] = torch.stack(mask_method_losses[f]).mean()
-        self.log(f'{fold}_mask_method_loss_{f}', mask_method_losses[f], on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
-
-    # Average per dimension variance of the context
-    context_var = torch.var(context_hidden, dim=-1).mean(-1)
-    self.log(f'{fold}_mean_perdim_context_var', context_var, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
     return jepa_loss
 
   def on_train_batch_start(self, batch, batch_idx):
