@@ -5,19 +5,20 @@ import torch.nn.functional as F
 from transformers import BertConfig, BertModel
 import pdb
 from vocab import RemiVocab
-from model import SymJEPA
+from model import SymJEPA, SymJEPAPooler
 import wandb
-from sklearn.metrics import roc_auc_score, confusion_matrix
+from sklearn.metrics import f1_score
 
 
 class FocalLoss(nn.Module):
-    def __init__(self, alpha=1, gamma=2):
+    def __init__(self, alpha=1, gamma=2, weight=None):
         super().__init__()
         self.alpha = alpha
         self.gamma = gamma
+        self.weight = weight
         
-    def forward(self, inputs, targets, weight=None):
-        ce_loss = F.cross_entropy(inputs, targets, reduction='none', weight=weight)
+    def forward(self, inputs, targets):
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none', weight=self.weight)
         pt = torch.exp(-ce_loss)
         focal_loss = self.alpha * (1-pt)**self.gamma * ce_loss
         return focal_loss.mean() * 1e10
@@ -34,7 +35,7 @@ class GenreClassificationModel(pl.LightningModule):
                     tokenization='remi',
                     class_weights=None,
                     task='genre',
-                    use_focal_loss=True,
+                    use_focal_loss=False,
                  **kwargs):
         super().__init__()
 
@@ -55,11 +56,13 @@ class GenreClassificationModel(pl.LightningModule):
         self.jepa = SymJEPA(tokenization=tokenization, pass_target_mask_to_predictor=True)
 
 
+        self.using_pretrained_encoder = False
+
+
         # Add sinusoidal positional encoding
-        self.positional_encoding = nn.Parameter(torch.zeros(1, 256, d_model))
+        self.positional_encoding = nn.Parameter(torch.zeros(1, 512, d_model))
         nn.init.xavier_uniform_(self.positional_encoding)
 
-        self.loss = FocalLoss() if use_focal_loss else nn.CrossEntropyLoss()
 
 
         encoder_layer = nn.TransformerEncoderLayer(
@@ -86,16 +89,27 @@ class GenreClassificationModel(pl.LightningModule):
         self.intermediate_size = intermediate_size
 
         self.class_weights = class_weights.to(self.device) if class_weights is not None else torch.ones(num_classes, device=self.device)
+        # self.loss = FocalLoss(weight=self.class_weights) if use_focal_loss else nn.CrossEntropyLoss(weight=self.class_weights)
 
+
+        self.loss = nn.BCEWithLogitsLoss(weight=self.class_weights)
         self.task = task
         self.class_key = 'genre_id' if task == 'genre' else 'style_id'
 
     def forward(self, input_ids):
-        with torch.no_grad():
-            encoder_hidden = self.jepa.encode_context(input_ids)
-            encoder_hidden = encoder_hidden + self.positional_encoding
-        genre_hidden = self.genre_transformer(encoder_hidden)
-        genre_hidden = genre_hidden.mean(dim=1)
+        if self.using_pretrained_encoder:
+            with torch.no_grad():
+                encoder_hidden = self.jepa.encode_context(input_ids)
+        else:
+            encoder_hidden = self.jepa.embed(input_ids)
+
+        # encoder_hidden = encoder_hidden + self.positional_encoding[:, :encoder_hidden.size(1), :]
+
+        # genre_hidden = self.genre_transformer(encoder_hidden)
+        genre_hidden = encoder_hidden
+
+        # Take the first token's hidden state
+        genre_hidden = genre_hidden[:, 0, :]
         logits = self.genre_classifier(genre_hidden)
         return logits
 
@@ -104,75 +118,35 @@ class GenreClassificationModel(pl.LightningModule):
         # attention_mask = batch['attention_mask']
         # pdb.set_trace()
         logits = self(input_ids)
-        loss = self.loss(logits, batch[self.class_key],
-        weight=self.class_weights.to(self.device)
-        )
+        loss = self.loss(logits, batch[self.class_key])
         self.log('train_loss', loss)
         return loss
     
     def validation_step(self, batch, batch_idx):
         input_ids = batch['input_ids']
         logits = self(input_ids)
-        loss = self.loss(logits, batch[self.class_key],
-        weight=self.class_weights.to(self.device)
-        )
+        loss = self.loss(logits, batch[self.class_key])
 
         self.log('val_loss', loss)
-        preds = torch.argmax(logits, dim=1)
+        # print(logits.shape)
+        preds = torch.sigmoid(logits)
+        preds = (preds > 0.5).long()
         acc = (preds == batch[self.class_key]).float().mean()
+        # print(acc.shape)
         self.log('val_acc', acc)
         
         # Calculate per-class metrics
-        num_classes = logits.size(1)
-        tp = torch.zeros(num_classes, device=preds.device)
-        fp = torch.zeros(num_classes, device=preds.device)
-        fn = torch.zeros(num_classes, device=preds.device)
-        
-        for c in range(num_classes):
-            tp[c] = ((preds == c) & (batch[self.class_key] == c)).sum()
-            fp[c] = ((preds == c) & (batch[self.class_key] != c)).sum()
-            fn[c] = ((preds != c) & (batch[self.class_key] == c)).sum()
-        
-        precision = tp / (tp + fp + 1e-7)
-        recall = tp / (tp + fn + 1e-7)
-        f1 = 2 * (precision * recall) / (precision + recall + 1e-7)
-        
-        # Log per-class metrics
-        # for c in range(num_classes):
-        #     self.log(f'val_precision_class_{c}', precision[c])
-        #     self.log(f'val_recall_class_{c}', recall[c])
-        #     self.log(f'val_f1_class_{c}', f1[c])
-        
-        # Log macro averages
-        macro_precision = precision.mean()
-        macro_recall = recall.mean()
-        macro_f1 = f1.mean()
-        
-        self.log('val_precision', macro_precision)
-        self.log('val_recall', macro_recall)
-        self.log('val_f1', macro_f1)
-        
-        
-        # Multi-class case
-        # roc_auc = torch.tensor(roc_auc_score(batch['genre_id'].cpu(), F.softmax(logits, dim=1).cpu(), multi_class='ovr'))
-        # self.log('val_roc_auc', roc_auc)
-        
-        # Log confusion matrix to wandb
-        cm = confusion_matrix(batch[self.class_key].cpu(), preds.cpu())
-        self.logger.experiment.log({
-            "confusion_matrix": wandb.plot.confusion_matrix(
-                probs=None,
-                y_true=batch[self.class_key].cpu().numpy(),
-                preds=preds.cpu().numpy(),
-                class_names=[f"Class_{i}" for i in range(num_classes)]
-            )
-        })
+        f1 = f1_score(batch[self.class_key].cpu(), preds.cpu(), average='micro')
+        self.log('val_f1', f1)
+
+        samples_f1 = f1_score(batch[self.class_key].cpu(), preds.cpu(), average='samples')
+        self.log('val_samples_f1', samples_f1)
         
         return loss
 
     def load_jepa(self, ckpt_path):
         self.jepa.load_state_dict(torch.load(ckpt_path)['state_dict'])
-
+        self.using_pretrained_encoder = True
     def configure_optimizers(self):
         return torch.optim.AdamW(self.parameters(), lr=self.lr)
     
