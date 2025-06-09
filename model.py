@@ -416,6 +416,10 @@ class SymJEPA(pl.LightningModule):
       target_mask=batch.get('target_mask'),
       latent_var_ids=batch.get('latent_var_ids'))
 
+    n_masked_context = batch['context_mask'].sum(dim=-1).mean()
+    n_masked_target = batch['target_mask'].sum(dim=-1).mean()
+    self.log(f'{fold}_n_masked_mean_per_seq_context', n_masked_context, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
+    self.log(f'{fold}_n_masked_mean_per_seq_target', n_masked_target, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
 
     pred_masked = pred.clone()
     pred_masked[batch['target_mask'][:, ::8]] = 0
