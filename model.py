@@ -94,7 +94,7 @@ class SymJEPA(pl.LightningModule):
                tokenization='remi',
                lr=1e-4,
                lr_schedule='linear',
-               warmup_steps=500,
+               warmup_steps=7000,
                max_steps=None,
                encoder_layers=16,
                predictor_layers=4,
