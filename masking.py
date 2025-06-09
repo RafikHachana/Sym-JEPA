@@ -56,7 +56,7 @@ def contiguous_masking(input_ids, octuple_breakout, context_ratio=0.5):
 def instrument_masking(input_ids, octuple_breakout):
     unique_instruments = list(set([x for x in octuple_breakout["instrument"] if x is not None and x < instrument_range]))
 
-    if len(unique_instruments) == 1:
+    if len(unique_instruments) <= 1:
         # Fallback to random masking
         return random_masking(input_ids, octuple_breakout)
 
@@ -64,14 +64,18 @@ def instrument_masking(input_ids, octuple_breakout):
     instrument = unique_instruments[torch.randint(0, len(unique_instruments), (1,))]
 
     context_mask = torch.zeros_like(input_ids).bool()
+    target_mask = torch.ones_like(input_ids).bool()
 
+    n_masked = 0
     for i, x in enumerate(octuple_breakout['instrument']):
         if x is None:
             continue
         if x == instrument:
             context_mask[i*8:i*8+8] = True
+            if n_masked < 10:
+                target_mask[i*8:i*8+8] = False
+            n_masked += 1
     
-    target_mask = ~context_mask
 
     return context_mask, target_mask, input_ids, _get_instrument_id(instrument)
 
@@ -94,7 +98,7 @@ def transpose_masking(input_ids, octuple_breakout):
 
 def rhythmic_noise_masking(input_ids, octuple_breakout):
 
-    octuple_breakout['duration'] = [x + torch.randint(-2, 1, (1,)) if x is not None else None for x in octuple_breakout['duration']]
+    octuple_breakout['duration'] = [x + torch.randint(-3, 2, (1,)) if x is not None else None for x in octuple_breakout['duration']]
 
     octuple_vocab = OctupleVocab()
 
@@ -122,14 +126,17 @@ def mask_pitch_classes(input_ids, octuple_breakout):
     pitch_class = pitch_classes[torch.randint(0, len(pitch_classes), (1,))]
 
     context_mask = torch.zeros_like(input_ids).bool()
+    target_mask = torch.ones_like(input_ids).bool()
 
+    n_masked = 0
     for i, x in enumerate(octuple_breakout['pitch']):
         if x is None or x > 127:
             continue
         if x % 12 == pitch_class:
             context_mask[i*8:i*8+8] = True
-
-    target_mask = ~context_mask
+            if n_masked < 10:
+                target_mask[i*8:i*8+8] = False
+            n_masked += 1
 
     return context_mask, target_mask, input_ids, 0
 
@@ -144,14 +151,18 @@ def mask_octaves(input_ids, octuple_breakout):
     octave = octaves[torch.randint(0, len(octaves), (1,))]
 
     context_mask = torch.zeros_like(input_ids).bool()
+    target_mask = torch.ones_like(input_ids).bool()
+
+    n_masked = 0
 
     for i, x in enumerate(octuple_breakout['pitch']):
         if x is None or x > 127:
             continue
         if x // 12 == octave:
             context_mask[i*8:i*8+8] = True
-
-    target_mask = ~context_mask
+            if n_masked < 10:
+                target_mask[i*8:i*8+8] = False
+            n_masked += 1
 
     return context_mask, target_mask, input_ids, 0
 

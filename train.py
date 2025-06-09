@@ -22,11 +22,11 @@ def add_model_specific_args(parent_parser):
                       help='Tokenization method to use (remi or octuple)')
 
     parser.add_argument("--jepa_context_ratio_start", type=float,
-                       default=float(os.getenv('JEPA_CONTEXT_RATIO_START', 0.6)),
-                       help="Ratio of sequence length to use as context at the start of training (default: 0.975)")
+                       default=float(os.getenv('JEPA_CONTEXT_RATIO_START', 0.98)),
+                       help="Ratio of sequence length to use as context at the start of training (default: 0.98)")
     parser.add_argument("--jepa_context_ratio_end", type=float,
-                       default=float(os.getenv('JEPA_CONTEXT_RATIO_END', 0.3)),
-                       help="Ratio of sequence length to use as context at the end of training (default: 0.6)")
+                       default=float(os.getenv('JEPA_CONTEXT_RATIO_END', 0.9)),
+                       help="Ratio of sequence length to use as context at the end of training (default: 0.9)")
 
     parser.add_argument("--limit", type=int, default=None,
                        help="Limit the number of files to load")
