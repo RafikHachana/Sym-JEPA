@@ -54,33 +54,42 @@ class GenreClassificationModel(pl.LightningModule):
         
         # Initialize only the encoder
         self.jepa = SymJEPA(tokenization=tokenization, pass_target_mask_to_predictor=True)
+        
+        self.jepa.eval()
 
+        self.jepa_pooler = SymJEPAPooler(d_model=d_model)
 
         self.using_pretrained_encoder = False
 
 
         # Add sinusoidal positional encoding
-        self.positional_encoding = nn.Parameter(torch.zeros(1, 512, d_model))
-        nn.init.xavier_uniform_(self.positional_encoding)
+        # self.positional_encoding = nn.Parameter(torch.zeros(1, 256, d_model))
+        # nn.init.xavier_uniform_(self.positional_encoding)
 
 
 
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model,
-            nhead=8,
-            dim_feedforward=2048,
-            dropout=0.1,
-            activation='relu',
-        )
-        # Transformer encoder with one layer
-        self.genre_transformer = nn.TransformerEncoder(
-            encoder_layer,
-            num_layers=1
-        )
+        # encoder_layer = nn.TransformerEncoderLayer(
+        #     d_model=d_model,
+        #     nhead=8,
+        #     dim_feedforward=2048,
+        #     dropout=0.1,
+        #     activation='relu',
+        # )
+        # # Transformer encoder with one layer
+        # self.genre_transformer = nn.TransformerEncoder(
+        #     encoder_layer,
+        #     num_layers=1
+        # )
 
         # self.genre_transformer = BertModel(config=encoder_config)
 
-        self.genre_classifier = nn.Linear(d_model, num_classes)
+        self.genre_classifier = nn.Sequential(
+            nn.Linear(d_model, d_model),
+            nn.LeakyReLU(),
+            nn.Linear(d_model, d_model),
+            nn.LeakyReLU(),
+            nn.Linear(d_model, num_classes)
+        )
 
         self.lr = lr
         self.d_model = d_model
@@ -92,24 +101,16 @@ class GenreClassificationModel(pl.LightningModule):
         # self.loss = FocalLoss(weight=self.class_weights) if use_focal_loss else nn.CrossEntropyLoss(weight=self.class_weights)
 
 
-        self.loss = nn.BCEWithLogitsLoss(weight=self.class_weights)
+        self.loss = nn.BCEWithLogitsLoss(reduction='mean')
         self.task = task
         self.class_key = 'genre_id' if task == 'genre' else 'style_id'
 
     def forward(self, input_ids):
-        if self.using_pretrained_encoder:
-            with torch.no_grad():
-                encoder_hidden = self.jepa.encode_context(input_ids)
-        else:
-            encoder_hidden = self.jepa.embed(input_ids)
-
-        # encoder_hidden = encoder_hidden + self.positional_encoding[:, :encoder_hidden.size(1), :]
-
-        # genre_hidden = self.genre_transformer(encoder_hidden)
-        genre_hidden = encoder_hidden
-
-        # Take the first token's hidden state
-        genre_hidden = genre_hidden[:, 0, :]
+        self.jepa.eval()
+        with torch.no_grad():
+            encoder_hidden = self.jepa.encode_context(input_ids)
+            # encoder_hidden = encoder_hidden + self.positional_encoding
+        genre_hidden = self.jepa_pooler(encoder_hidden)
         logits = self.genre_classifier(genre_hidden)
         return logits
 
@@ -118,7 +119,15 @@ class GenreClassificationModel(pl.LightningModule):
         # attention_mask = batch['attention_mask']
         # pdb.set_trace()
         logits = self(input_ids)
+
+        # print(logits.shape)
+        # print("Biggest logit: ", logits.max())
+        # print("Smallest logit: ", logits.min())
+        # print(batch[self.class_key].shape)
+        # print("Class weights: ", self.class_weights)
+        # print("Normalized class weights: ", self.class_weights / self.class_weights.sum())
         loss = self.loss(logits, batch[self.class_key])
+        # print("Loss: ", loss)
         self.log('train_loss', loss)
         return loss
     
@@ -126,6 +135,9 @@ class GenreClassificationModel(pl.LightningModule):
         input_ids = batch['input_ids']
         logits = self(input_ids)
         loss = self.loss(logits, batch[self.class_key])
+
+        # print(logits.shape)
+        # print(batch[self.class_key].shape)
 
         self.log('val_loss', loss)
         # print(logits.shape)
