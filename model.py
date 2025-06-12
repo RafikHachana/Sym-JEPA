@@ -336,7 +336,7 @@ class SymJEPA(pl.LightningModule):
     if context_mask is not None:
       if self.tokenization == 'octuple':
         context_mask = context_mask[:, ::8]
-      encoder_hidden[context_mask] = 0
+      # encoder_hidden[context_mask] = 0
     return encoder_hidden
 
   def forward(self, context_ids, target_ids=None, return_context_encoder_hidden=False, context_mask=None, target_mask=None, latent_var_ids=None):
