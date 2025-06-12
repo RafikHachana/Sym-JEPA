@@ -362,7 +362,8 @@ class SymJEPA(pl.LightningModule):
 
             predictor_input = torch.cat([predictor_input, latent_var], dim=1)
 
-        pred = self.predictor(inputs_embeds=predictor_input, output_hidden_states=True, attention_mask=attention_mask)
+        # TODO: Decide about the attention mask
+        pred = self.predictor(inputs_embeds=predictor_input, output_hidden_states=True, attention_mask=None)
         pred_hidden = pred.last_hidden_state[:, encoder_hidden.size(1):]
 
         return pred_hidden, target_encoder_hidden, encoder_hidden
@@ -416,16 +417,17 @@ class SymJEPA(pl.LightningModule):
       target_mask=batch.get('target_mask'),
       latent_var_ids=batch.get('latent_var_ids'))
 
-    n_masked_context = batch['context_mask'].sum(dim=-1).mean()
-    n_masked_target = batch['target_mask'].sum(dim=-1).mean()
+
+    n_masked_context = batch['context_mask'].sum(dim=-1).float().mean()
+    n_masked_target = batch['target_mask'].sum(dim=-1).float().mean()
     self.log(f'{fold}_n_masked_mean_per_seq_context', n_masked_context, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
     self.log(f'{fold}_n_masked_mean_per_seq_target', n_masked_target, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
 
     pred_masked = pred.clone()
-    pred_masked[batch['target_mask'][:, ::8]] = 0
+    # pred_masked[batch['target_mask'][:, ::8]] = 0
 
     target_masked = target.clone()
-    target_masked[batch['target_mask'][:, ::8]] = 0
+    # target_masked[batch['target_mask'][:, ::8]] = 0
 
     # Normalize all vectors to unit norm
     pred_masked = F.normalize(pred_masked, p=2, dim=-1)
