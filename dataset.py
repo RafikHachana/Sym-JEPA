@@ -219,13 +219,13 @@ class SeqCollator:
 
     prob = 1/7
     self.mask_generator = RandomMaskGenerator({
-      "transpose": prob,
-      "instrument": prob,
-      "octaves": prob,
-      "pitch_classes": prob,
-      "rhythmic_noise": prob,
-      "contiguous": prob,
-      "random": 1- 6*prob,
+      "transpose": 0.01,
+      "instrument": 0.19,
+      "octaves": 0.15,
+      "pitch_classes": 0.15,
+      "rhythmic_noise": 0.01,
+      "contiguous": 0.2,
+      "random": 0.29,
     })
 
     self.current_context_ratio_scheduler_step = 0
