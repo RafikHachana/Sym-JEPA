@@ -245,6 +245,8 @@ class SymJEPA(pl.LightningModule):
 
     predictor_config = deepcopy(encoder_config)
     predictor_config.num_hidden_layers = predictor_layers
+    predictor_config.is_decoder = True
+    predictor_config.add_cross_attention = True
     
     # Initialize only the encoder
     self.context_encoder = BertModel(encoder_config)
@@ -349,22 +351,20 @@ class SymJEPA(pl.LightningModule):
 
         if self.tokenization == 'octuple':
             target_mask = target_mask[:, ::8]
-        target_encoder_hidden[target_mask] = 0
 
-        predictor_input = encoder_hidden + self.positional_encoding[:, :encoder_hidden.size(1), :]
-        attention_mask = None
-        if self.pass_target_mask_to_predictor:
-            latent_var = self.latent_var_in(latent_var_ids)
-            latent_var = latent_var + self.positional_encoding[:, :latent_var.size(1), :].repeat(latent_var.size(0), 1, 1)
-            latent_var[target_mask] = 0
+        target_encoder_hidden = target_encoder_hidden[~target_mask]
 
-            attention_mask = torch.cat([torch.ones_like(context_mask[:, ::8]), ~target_mask], dim=1)
+        latent_var = self.latent_var_in(latent_var_ids)
+        latent_var = latent_var + self.positional_encoding[:, :latent_var.size(1), :].repeat(latent_var.size(0), 1, 1)
 
-            predictor_input = torch.cat([predictor_input, latent_var], dim=1)
+        latent_var = latent_var[~target_mask]
 
         # TODO: Decide about the attention mask
-        pred = self.predictor(inputs_embeds=predictor_input, output_hidden_states=True, attention_mask=None)
-        pred_hidden = pred.last_hidden_state[:, encoder_hidden.size(1):]
+        pred = self.predictor(
+           inputs_embeds=latent_var,
+           encoder_hidden_states=encoder_hidden,
+        )
+        pred_hidden = pred.last_hidden_state
 
         return pred_hidden, target_encoder_hidden, encoder_hidden
     return pred_hidden
