@@ -18,7 +18,7 @@ def main():
                       choices=['remi', 'octuple'],
                       help='Tokenization method to use (remi or octuple)')
 
-    parser.add_argument('--max_epochs', type=int, default=3)
+    parser.add_argument('--max_epochs', type=int, default=5)
     parser.add_argument('--task', type=str, default='genre',
     choices=['genre', 'style', 'melody_completion'], help='Task to fine-tune on')
 
@@ -31,7 +31,7 @@ def main():
         train_melody_completion(args)
         return
 
-    midi_files = glob(os.path.join("dataset/lmd_full", "**/*.mid"), recursive=True)[:100]
+    midi_files = glob(os.path.join("dataset/lmd_full", "**/*.mid"), recursive=True)[:50000]
     data_module = MidiDataModule(
         midi_files,
         max_len=2048,
@@ -50,7 +50,7 @@ def main():
     if args.task == 'genre' or args.task == 'style':
         model = GenreClassificationModel(
             num_classes=len(data_module.train_ds.all_genres) if args.task == 'genre' else len(data_module.train_ds.all_styles),
-            lr=1e-3,
+            lr=1e-5,
             d_model=512,
             encoder_layers=8,
             num_attention_heads=8,
