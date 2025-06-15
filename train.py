@@ -118,6 +118,8 @@ def main():
 
     data_module.setup()
 
+    GRADIENT_ACCUMULATION_N_BATCHES= 25
+
 
     # Create the model instance
     model = SymJEPA(
@@ -127,8 +129,8 @@ def main():
         vicreg_var_weight=args.vicreg_var_weight,
         vicreg_cov_weight=args.vicreg_cov_weight,
         vicreg_loss_ratio=args.vicreg_loss_ratio,
-        lr_schedule='sqrt_decay',
-        max_steps=len(data_module.train_dataloader()) * args.max_epochs,
+        lr_schedule='cosine',
+        max_steps=len(data_module.train_dataloader()) * args.max_epochs // GRADIENT_ACCUMULATION_N_BATCHES,
         tokenization=args.tokenization,
         pass_target_mask_to_predictor=args.pass_target_mask_to_predictor,
         lr=args.lr
@@ -145,7 +147,10 @@ def main():
         limit_val_batches=args.limit_batches if args.limit_batches else 1.0,
         callbacks=[
             ModelCheckpoint(monitor='val_loss', mode='min', save_top_k=1, save_last=True)
-        ]
+        ],
+        accumulate_grad_batches=GRADIENT_ACCUMULATION_N_BATCHES,
+        gradient_clip_val=1.0,
+        log_every_n_steps=max(1, 50 // GRADIENT_ACCUMULATION_N_BATCHES)
     )
 
     # Log hyperparameters only if not in fast_dev_run mode
