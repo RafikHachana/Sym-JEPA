@@ -1,5 +1,6 @@
 from tasks.genre_classification import GenreClassificationModel
 from tasks.melody_completion import MelodyCompletionModel, train as train_melody_completion
+from tasks.performer_composer_classification import train as train_performer_composer_classification
 from dataset import MidiDataModule
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
@@ -20,7 +21,7 @@ def main():
 
     parser.add_argument('--max_epochs', type=int, default=5)
     parser.add_argument('--task', type=str, default='genre',
-    choices=['genre', 'style', 'melody_completion'], help='Task to fine-tune on')
+    choices=['genre', 'style', 'melody_completion', 'performer', 'composer'], help='Task to fine-tune on')
 
     parser.add_argument("--fast_dev_run", action="store_true",
                        help="Do a test run with 1 batch for training and validation")
@@ -29,6 +30,10 @@ def main():
 
     if args.task == 'melody_completion':
         train_melody_completion(args)
+        return
+    
+    if args.task == 'performer' or args.task == 'composer':
+        train_performer_composer_classification(args)
         return
 
     midi_files = glob(os.path.join("dataset/lmd_full", "**/*.mid"), recursive=True)[:50000]
