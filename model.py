@@ -8,11 +8,47 @@ from constants import PAD_TOKEN
 from transformers import BertConfig, BertModel
 from copy import deepcopy
 import torch.nn.functional as F
-
 from octuple_tokenizer import token_to_value, get_max_vector, OctupleVocab, max_pitch, bar_max, max_inst, ts_list
 from positional_encoding import MusicPositionalEncoding, FundamentalMusicEmbedding
 import pdb
 from masking import transpose_range, instrument_range
+
+def gather_unmasked_tokens(tensor, mask, pad_value=0):
+    """
+    Gather unmasked tokens using indices, padding shorter sequences
+    """
+    batch_size, seq_len = mask.shape
+    unmasked_mask = ~mask
+    
+    # Get indices of unmasked tokens for each sequence
+    unmasked_indices = []
+    max_unmasked = 0
+    
+    for i in range(batch_size):
+        indices = unmasked_mask[i].nonzero(as_tuple=True)[0]
+        unmasked_indices.append(indices)
+        max_unmasked = max(max_unmasked, len(indices))
+    
+    # Create padded indices tensor
+    padded_indices = torch.full((batch_size, max_unmasked), 0, 
+                               device=tensor.device, dtype=torch.long)
+    attention_mask = torch.zeros(batch_size, max_unmasked, 
+                                device=tensor.device, dtype=torch.bool)
+    
+    for i, indices in enumerate(unmasked_indices):
+        if len(indices) > 0:
+            padded_indices[i, :len(indices)] = indices
+            attention_mask[i, :len(indices)] = True
+    
+    # Gather tokens using indices
+    if len(tensor.shape) == 2:
+        gathered = torch.gather(tensor, 1,
+                           padded_indices)  
+    else:
+        gathered = torch.gather(tensor, 1, 
+                           padded_indices.unsqueeze(-1).expand(-1, -1, tensor.size(-1)))
+    
+    return gathered, attention_mask
 
 class Utils:
     @staticmethod
@@ -20,14 +56,9 @@ class Utils:
         """
         Returns a normalized set of 8-dim vectors
         """
-        # print(tokens.shape)
         unnormalized = torch.tensor([[token_to_value(token) for token in seq] for seq in map(vocab.decode, tokens.cpu())])
-        # print("Unnormalized: ", unnormalized.shape)
         sequences = list(map(vocab.decode, tokens.cpu()))
-        # print("Percentage of <mask>: ", sum(seq.count("<mask>") for seq in sequences) / sum(len(seq) for seq in sequences))
-        # print("Percentage of -1: ", (unnormalized == -1).sum() / unnormalized.numel())
         unnormalized = unnormalized.view(tokens.shape[0], -1, 8)
-        # print("Unnormalized: ", unnormalized.shape)
         max_vector = torch.tensor(get_max_vector(), dtype=torch.float)
         return unnormalized / max_vector
 
@@ -80,12 +111,7 @@ class Utils:
         time_signature_ohe = F.one_hot(time_signature, num_classes=len(ts_list))
 
         continuous_tokens = torch.cat([bar_binary_representation, octave, tempo, duration, local_onset, velocity, pitch_class_ohe, drum_pitch_ohe, instrument_ohe, time_signature_ohe], dim=-1)
-
         return continuous_tokens
-
-
-
-
 
 class SymJEPA(pl.LightningModule):
   def __init__(self,
@@ -194,8 +220,6 @@ class SymJEPA(pl.LightningModule):
     # Store just the EMA parameters
     self.ema = ema
 
-    self.save_hyperparameters()
-
     self.num_epochs = num_epochs
     self.momentum_start = momentum_start
     self.momentum_end = momentum_end
@@ -247,6 +271,7 @@ class SymJEPA(pl.LightningModule):
     predictor_config.num_hidden_layers = predictor_layers
     predictor_config.is_decoder = True
     predictor_config.add_cross_attention = True
+    predictor_config.position_embedding_type = 'absolute'
     
     # Initialize only the encoder
     self.context_encoder = BertModel(encoder_config)
@@ -258,6 +283,8 @@ class SymJEPA(pl.LightningModule):
     self.predictor = BertModel(predictor_config)
 
     self.latent_var_in = nn.Embedding(transpose_range + instrument_range + 1, self.d_model)
+    
+    self.save_hyperparameters()
   
   def _fuse_decoded_tokens(self, decoded_tokens, context_emb):
      if self.tokenization == 'remi':
@@ -327,16 +354,12 @@ class SymJEPA(pl.LightningModule):
   def encode_context(self, context_ids, context_mask=None):
     context_emb = self.embed(context_ids)
 
-    attention_mask = None
-    # if context_mask is not None:
-    #   attention_mask = ~context_mask[:, ::8]
-    out = self.context_encoder(inputs_embeds=context_emb, output_hidden_states=True, attention_mask=attention_mask)
+    out = self.context_encoder(inputs_embeds=context_emb, output_hidden_states=True, attention_mask=None)
     encoder_hidden = out.hidden_states[-1]
 
     if context_mask is not None:
       if self.tokenization == 'octuple':
         context_mask = context_mask[:, ::8]
-      # encoder_hidden[context_mask] = 0
     return encoder_hidden
 
   def forward(self, context_ids, target_ids=None, return_context_encoder_hidden=False, context_mask=None, target_mask=None, latent_var_ids=None):
@@ -351,22 +374,23 @@ class SymJEPA(pl.LightningModule):
 
         if self.tokenization == 'octuple':
             target_mask = target_mask[:, ::8]
+        
+        # Adjust the size of the target and latent var
+        minimized_target_encoder_hidden, _ = gather_unmasked_tokens(target_encoder_hidden, target_mask)
 
-        target_encoder_hidden = target_encoder_hidden[~target_mask]
-
+        pos_enc, _ = gather_unmasked_tokens(self.positional_encoding[:, :latent_var_ids.size(1), :].repeat(latent_var_ids.size(0), 1, 1), target_mask)
+        latent_var_ids, attention_mask = gather_unmasked_tokens(latent_var_ids, target_mask)
         latent_var = self.latent_var_in(latent_var_ids)
-        latent_var = latent_var + self.positional_encoding[:, :latent_var.size(1), :].repeat(latent_var.size(0), 1, 1)
+        latent_var = latent_var + pos_enc
 
-        latent_var = latent_var[~target_mask]
-
-        # TODO: Decide about the attention mask
         pred = self.predictor(
            inputs_embeds=latent_var,
            encoder_hidden_states=encoder_hidden,
+           attention_mask=attention_mask
         )
         pred_hidden = pred.last_hidden_state
 
-        return pred_hidden, target_encoder_hidden, encoder_hidden
+        return pred_hidden, minimized_target_encoder_hidden, encoder_hidden, attention_mask
     return pred_hidden
     
   def vicreg_loss(self, context_hidden):
@@ -409,7 +433,7 @@ class SymJEPA(pl.LightningModule):
     return total_loss, sim_loss, var_loss, cov_loss
 
   def get_loss(self, batch, fold='train'):
-    pred, target, context_hidden = self(
+    pred, target, context_hidden, loss_mask = self(
       batch['context_ids'],
       batch['target_ids'],
       return_context_encoder_hidden=True,
@@ -418,65 +442,53 @@ class SymJEPA(pl.LightningModule):
       latent_var_ids=batch.get('latent_var_ids'))
 
 
-    n_masked_context = batch['context_mask'].sum(dim=-1).float().mean()
-    n_masked_target = batch['target_mask'].sum(dim=-1).float().mean()
-    self.log(f'{fold}_n_masked_mean_per_seq_context', n_masked_context, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
-    self.log(f'{fold}_n_masked_mean_per_seq_target', n_masked_target, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
+    if fold == 'train':
+      n_masked_context = batch['context_mask'].sum(dim=-1).float().mean()
+      n_masked_target = (~batch['target_mask']).sum(dim=-1).float().mean()
+      self.log(f'{fold}_n_masked_mean_per_seq_context', n_masked_context, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
+      self.log(f'{fold}_n_masked_mean_per_seq_target', n_masked_target, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
 
-    pred_masked = pred.clone()
-    # pred_masked[batch['target_mask'][:, ::8]] = 0
-
-    target_masked = target.clone()
-    # target_masked[batch['target_mask'][:, ::8]] = 0
 
     # Normalize all vectors to unit norm
-    pred_masked = F.normalize(pred_masked, p=2, dim=-1)
-    target_masked = F.normalize(target_masked, p=2, dim=-1)
+    pred = F.normalize(pred, p=2, dim=-1)
+    target = F.normalize(target, p=2, dim=-1)
+
     
     # Original JEPA loss
     if self.use_cosine_loss:
-      jepa_loss = self.loss_fn(pred_masked.view(-1, pred_masked.size(-1)), target_masked.view(-1, target_masked.size(-1)), torch.ones(pred_masked.size()[0]*pred_masked.size()[1]).to(self.device))
+      jepa_loss = self.loss_fn(pred[loss_mask], target[loss_mask], torch.ones(target[loss_mask].size()[0]).to(self.device))
     else:
-      jepa_loss = self.loss_fn(pred_masked, target_masked)
+      jepa_loss = self.loss_fn(pred, target)
     
     if self.use_vicreg:
       vicreg_total, vic_sim, vic_var, vic_cov = self.vicreg_loss(context_hidden)
 
-      self.log(f'{fold}_vicreg_loss', vicreg_total, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-      # Dynamic loss weighting
-      with torch.no_grad():
-          loss_ratio = vicreg_total / jepa_loss
-          scale = self.vicreg_loss_ratio / loss_ratio if loss_ratio > self.vicreg_loss_ratio else 1.0
-          
-      # Apply dynamic scaling
-      vicreg_total = vicreg_total * scale
+      self.log(f'{fold}_vicreg_loss', vicreg_total, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
+      # Static weighting
+      vicreg_total = vicreg_total * self.vicreg_loss_ratio
       
       # Log VicReg components
-      self.log(f'{fold}_vicreg_sim', vic_sim, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-      self.log(f'{fold}_vicreg_var', vic_var, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-      self.log(f'{fold}_vicreg_cov', vic_cov, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+      self.log(f'{fold}_vicreg_sim', vic_sim, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
+      self.log(f'{fold}_vicreg_var', vic_var, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
+      self.log(f'{fold}_vicreg_cov', vic_cov, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
       
       # Combine losses
       total_loss = jepa_loss + vicreg_total
-      self.log(f'{fold}_jepa_loss', jepa_loss, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+      self.log(f'{fold}_jepa_loss', jepa_loss, on_step=True, on_epoch=False, prog_bar=fold=='train', logger=True, sync_dist=True)
 
       # Info NCE loss
-      h = pred_masked[~batch['target_mask'][:, ::8]].view(-1, pred_masked.size(-1))
-      p = target_masked[~batch['target_mask'][:, ::8]].view(-1, target_masked.size(-1))
-
+      h = pred[loss_mask]
+      p = target[loss_mask]
       TEMPERATURE = 0.1
       logits_context = torch.matmul(h, p.T) / TEMPERATURE
       labels = torch.arange(logits_context.size(0), device=self.device)
-
       loss_fct = nn.CrossEntropyLoss()
       info_nce_loss = loss_fct(logits_context, labels)
-
-      self.log(f'{fold}_info_nce_loss', info_nce_loss, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+      self.log(f'{fold}_info_nce_loss', info_nce_loss, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
 
   
       total_loss += self.info_nce_loss_weight * info_nce_loss
 
-      # self.log(f'{fold}_total_loss', total_loss, on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
     
       # JEPA loss per masking method
       mask_method_losses = {}
@@ -486,9 +498,9 @@ class SymJEPA(pl.LightningModule):
               mask_method_losses[f] = []
           with torch.no_grad():
             if self.use_cosine_loss:
-              mask_method_losses[f].append(self.loss_fn(pred_masked[i], target_masked[i], torch.ones(pred_masked[i].size()[0]).to(self.device)))
+              mask_method_losses[f].append(self.loss_fn(pred[i][loss_mask[i]], target[i][loss_mask[i]], torch.ones(pred[i][loss_mask[i]].size()[0]).to(self.device)))
             else:
-              mask_method_losses[f].append(self.loss_fn(pred_masked[i], target_masked[i]))
+              mask_method_losses[f].append(self.loss_fn(pred[i], target[i]))
       
       for f in mask_method_losses:
           mask_method_losses[f] = torch.stack(mask_method_losses[f]).mean()
@@ -525,12 +537,12 @@ class SymJEPA(pl.LightningModule):
             context_grad_sum += param.grad.abs().sum()
             
     # Log both gradient sums
-    self.log('target_encoder_grad_sum', target_grad_sum, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
-    self.log('context_encoder_grad_sum', context_grad_sum, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+    self.log('target_encoder_grad_sum', target_grad_sum, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
+    self.log('context_encoder_grad_sum', context_grad_sum, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
 
     # Log current learning rate
     current_lr = self.optimizers().param_groups[0]['lr']
-    self.log('learning_rate', current_lr, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+    self.log('learning_rate', current_lr, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
 
     # Update the target parameters
     with torch.no_grad():
@@ -547,65 +559,13 @@ class SymJEPA(pl.LightningModule):
             param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
 
         self.log('target_momentum', m, on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
-    self.log('train_loss', loss.detach(), on_step=True, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+    self.log('train_loss', loss.detach(), on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True)
 
     return loss
   
   def validation_step(self, batch, batch_idx):
     loss = self.get_loss(batch, fold='val')
-    
-    # Get encoder outputs
-    # if self.tokenization == 'remi':
-    #     context_emb = self.remi_in(batch['context_ids'])
-    #     context_out = self.context_encoder(inputs_embeds=context_emb, output_hidden_states=True)
-    #     context_hidden = context_out.hidden_states[-1]  # [batch_size, seq_len, hidden_dim]
-    # elif self.tokenization == 'octuple':
-    #     context_emb = self.octuple_in(batch['context_ids'])
-
-    #     context_out = self.context_encoder(inputs_embeds=context_emb, output_hidden_states=True)
-    #     context_hidden = context_out.hidden_states[-1]  # [batch_size, seq_len, hidden_dim]
-    
-    # with torch.no_grad():
-    #     target_emb = self.remi_in(batch['target_ids'])
-    #     target_out = self.target_encoder(inputs_embeds=target_emb, output_hidden_states=True)
-    #     target_hidden = target_out.hidden_states[-1]
-        
-    #     # Calculate representation collapse metrics
-        
-    #     # 1. Cosine similarity (higher value indicates more collapse)
-    #     cos_sim = F.cosine_similarity(
-    #         context_hidden.view(-1, context_hidden.size(-1)),
-    #         target_hidden.view(-1, target_hidden.size(-1)),
-    #         dim=1
-    #     ).mean()
-        
-    #     # 2. Mean squared difference of normalized representations (lower value indicates more collapse)
-    #     context_norm = F.normalize(context_hidden, p=2, dim=-1)
-    #     target_norm = F.normalize(target_hidden, p=2, dim=-1)
-    #     mse_diff = torch.mean((context_norm - target_norm) ** 2)
-        
-    #     # 3. Variance of representations across batch
-    #     # Reshape to [batch_size * seq_len, hidden_dim]
-    #     context_flat = context_hidden.view(-1, context_hidden.size(-1))
-    #     target_flat = target_hidden.view(-1, target_hidden.size(-1))
-        
-    #     # Calculate variance for each feature across batch
-    #     context_var = torch.var(context_flat, dim=0).mean()  # Mean variance across features
-    #     target_var = torch.var(target_flat, dim=0).mean()
-        
-    #     # Log all metrics
-    #     self.log('val_cosine_similarity', cos_sim, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
-    #     self.log('val_mse_diff', mse_diff, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
-    #     self.log('val_context_variance', context_var, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
-    #     self.log('val_target_variance', target_var, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
-        
-    #     # Also log the original norms
-    #     context_norm = torch.norm(context_hidden, dim=-1).mean()
-    #     target_norm = torch.norm(target_hidden, dim=-1).mean()
-    #     self.log('val_context_encoder_norm', context_norm, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-    #     self.log('val_target_encoder_norm', target_norm, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-    
-    self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+    self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
     return loss
   
   def test_step(self, batch, batch_idx):
