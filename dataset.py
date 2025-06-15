@@ -316,7 +316,7 @@ class SeqCollator:
       for i in range(batch_size):
         ctx, tgt, new_ids, latent_var_id, mask_function = self.mask_generator(xs[i],
                                                                               features[i]['octuple_breakout'],
-                                                                              random_mask_prob=0.02,
+                                                                              random_mask_prob=0.1,
                                                                               contiguous_context_ratio=self.current_jepa_context_ratio)
         
         context_masks.append(ctx)
