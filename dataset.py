@@ -292,6 +292,8 @@ class SeqCollator:
 
   def __call__(self, features):
     batch = {}
+
+    features = [feature for feature in features if feature is not None]
     
     xs_list = [feature['input_ids'] for feature in features]
     xs = pad_sequence(xs_list, batch_first=True, padding_value=self.pad_token)
