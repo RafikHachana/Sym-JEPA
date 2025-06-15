@@ -234,7 +234,11 @@ class MelodyCompletionModel(pl.LightningModule):
         return average_precision_score(y_true=combined[:, 1], y_score=combined[:, 0])
 
     def hits_at_k(self, combined, k):
-        return np.sum(combined[:k, 1]) / k
+        """
+        combined: np.ndarray, should be sorted by the first column
+        k: int
+        """
+        return np.sum(combined[:k, 1])
 
     def load_jepa(self, ckpt_path):
         self.jepa.load_state_dict(torch.load(ckpt_path)['state_dict'])
