@@ -116,18 +116,8 @@ class GenreClassificationModel(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         input_ids = batch['input_ids']
-        # attention_mask = batch['attention_mask']
-        # pdb.set_trace()
         logits = self(input_ids)
-
-        # print(logits.shape)
-        # print("Biggest logit: ", logits.max())
-        # print("Smallest logit: ", logits.min())
-        # print(batch[self.class_key].shape)
-        # print("Class weights: ", self.class_weights)
-        # print("Normalized class weights: ", self.class_weights / self.class_weights.sum())
         loss = self.loss(logits, batch[self.class_key])
-        # print("Loss: ", loss)
         self.log('train_loss', loss)
         return loss
     
