@@ -19,7 +19,7 @@ class MelodyPredictionDataModule(pl.LightningDataModule):
 
 
     def setup(self, stage=None):
-        n_train = int(len(self.file_paths) * 0.95)
+        n_train = int(len(self.file_paths) * 0.995)
         n_val = len(self.file_paths) - n_train
         self.train_dataset = MelodyPredictionDataset(self.file_paths[:n_train], negative_pairs_per_positive=1)
         self.val_dataset = MelodyPredictionDataset(self.file_paths[n_train:], negative_pairs_per_positive=49)
@@ -28,7 +28,7 @@ class MelodyPredictionDataModule(pl.LightningDataModule):
         return DataLoader(self.train_dataset, batch_size=self.batch_size, num_workers=self.num_workers, collate_fn=SeqCollator())
 
     def val_dataloader(self):
-        return DataLoader(self.val_dataset, batch_size=2, num_workers=self.num_workers, collate_fn=SeqCollator())
+        return DataLoader(self.val_dataset, batch_size=max(1, self.batch_size//50), num_workers=self.num_workers, collate_fn=SeqCollator())
 
 class SeqCollator:
     def __init__(self, pad_token=0):
@@ -78,33 +78,36 @@ class MelodyPredictionDataset(Dataset):
             "match": [],
             "uuid": []
         }
-        first_half = instance['input_ids'][:len(instance['input_ids'])//2].tolist()
-        second_half = instance['input_ids'][len(instance['input_ids'])//2:].tolist()
+        try:
+            first_half = instance['input_ids'][:len(instance['input_ids'])//2].tolist()
+            second_half = instance['input_ids'][len(instance['input_ids'])//2:].tolist()
+        except:
+            return self._get_pairs(np.random.randint(0, len(self.midi_dataset)))
 
         first_half_uuid = uuid4()
 
-        # print("First half: ", first_half)
-        # print("Second half: ", second_half)
-        # print("BOS: ", self.bos)
-        # print("EOS: ", self.eos)
-
         # Get the positive pair
         result['input'].append(self.bos + first_half + self.eos + second_half + self.eos)
+        assert len(result['input'][-1]) % 8 == 0, "Input length is not divisible by 8"
+
         result['match'].append(1)
         result['uuid'].append(first_half_uuid)
 
-
-        for i in range(self.negative_pairs_per_positive):
-            # Get a random index
-            random_idx = np.random.randint(0, len(self.midi_dataset))
-            while random_idx == idx:
+        try:
+            for i in range(self.negative_pairs_per_positive):
+                # Get a random index
                 random_idx = np.random.randint(0, len(self.midi_dataset))
+                while random_idx == idx or self.midi_dataset[random_idx] is None:
+                    random_idx = np.random.randint(0, len(self.midi_dataset))
 
-            # Get the negative pair
-            negative_match = self.midi_dataset[random_idx]['input_ids'].tolist()
-            result['input'].append(self.bos + first_half + self.eos + negative_match[len(negative_match)//2:] + self.eos)
-            result['match'].append(0)
-            result['uuid'].append(first_half_uuid)
+                # Get the negative pair
+                negative_match = self.midi_dataset[random_idx]['input_ids'].tolist()
+                result['input'].append(self.bos + first_half + self.eos + negative_match[len(negative_match)//2:] + self.eos)
+                assert len(result['input'][-1]) % 8 == 0, "Input length is not divisible by 8"
+                result['match'].append(0)
+                result['uuid'].append(first_half_uuid)
+        except:
+            return self._get_pairs(np.random.randint(0, len(self.midi_dataset)))
 
         # Shuffle the result
         result['input'], result['match'] = shuffle(result['input'], result['match'])
