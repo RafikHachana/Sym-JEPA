@@ -72,7 +72,7 @@ def instrument_masking(input_ids, octuple_breakout):
             continue
         if x == instrument:
             context_mask[i*8:i*8+8] = True
-            if n_masked < 10:
+            if n_masked < 50:
                 target_mask[i*8:i*8+8] = False
             n_masked += 1
     
@@ -134,7 +134,7 @@ def mask_pitch_classes(input_ids, octuple_breakout):
             continue
         if x % 12 == pitch_class:
             context_mask[i*8:i*8+8] = True
-            if n_masked < 10:
+            if n_masked < 50:
                 target_mask[i*8:i*8+8] = False
             n_masked += 1
 
@@ -160,7 +160,7 @@ def mask_octaves(input_ids, octuple_breakout):
             continue
         if x // 12 == octave:
             context_mask[i*8:i*8+8] = True
-            if n_masked < 10:
+            if n_masked < 50:
                 target_mask[i*8:i*8+8] = False
             n_masked += 1
 
