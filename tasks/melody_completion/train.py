@@ -10,15 +10,16 @@ import torch
 torch.set_float32_matmul_precision('high')
 
 def train(args):
-    midi_files = glob(os.path.join("dataset/lmd_full", "**/*.mid"), recursive=True)[:10000]
+    midi_files = glob(os.path.join("dataset/clean_midi", "**/*.mid"), recursive=True)[:5000]
+    print("Len of midi files: ", len(midi_files))
     data_module = MelodyPredictionDataModule(
         midi_files,
-        batch_size=32,
+        batch_size=64,
         num_workers=4,
     )
     
     model = MelodyCompletionModel(
-        lr=1,
+        lr=2e-4,
         d_model=512,
         encoder_layers=8,
         tokenization=args.tokenization
@@ -41,10 +42,11 @@ def train(args):
             ModelCheckpoint(monitor='val_loss', mode='min', save_top_k=1, save_last=True)
         ],
         logger=logger,
-        fast_dev_run=args.fast_dev_run
+        fast_dev_run=args.fast_dev_run,
+        num_sanity_val_steps=10
     )
 
-    trainer.validate(model, data_module)
+    # trainer.validate(model, data_module)
 
     trainer.fit(model, data_module)
 
