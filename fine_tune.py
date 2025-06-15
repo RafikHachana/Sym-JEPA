@@ -83,7 +83,9 @@ def main():
             ModelCheckpoint(monitor='val_loss', mode='min', save_top_k=1, save_last=True)
         ],
         logger=logger,
-        fast_dev_run=args.fast_dev_run
+        fast_dev_run=args.fast_dev_run,
+        accumulate_grad_batches=4,
+        log_every_n_steps=max(1, 50 // 4)
     )
 
     trainer.validate(model, data_module)
