@@ -396,7 +396,13 @@ class SymJEPA(pl.LightningModule):
   def vicreg_loss(self, context_hidden):
     all_vectors = context_hidden.view(-1, context_hidden.size(-1))
     
-    N_total = all_vectors.size(1)
+    N_total = all_vectors.size(0)
+
+    # Ensure even number of samples
+    if N_total % 2 != 0:
+        all_vectors = all_vectors[:-1]
+        N_total -= 1
+
     perm = torch.randperm(N_total)
     z1 = all_vectors[perm[:N_total//2]]
     z2 = all_vectors[perm[N_total//2:]]
