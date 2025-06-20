@@ -1,6 +1,7 @@
 from tasks.genre_classification import GenreClassificationModel
 from tasks.melody_completion import MelodyCompletionModel, train as train_melody_completion
 from tasks.performer_composer_classification import train as train_performer_composer_classification
+from tasks.generate_midi import MusicDecoder
 from dataset import MidiDataModule
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
@@ -21,14 +22,16 @@ def main():
 
     parser.add_argument('--max_epochs', type=int, default=10)
     parser.add_argument('--task', type=str, default='genre',
-    choices=['genre', 'style', 'melody_completion', 'performer', 'composer'], help='Task to fine-tune on')
+    choices=['genre', 'style', 'melody_completion',
+             'performer', 'composer', 'decode',
+             'accompaniment_suggestion', 'difficulty', 'emotion'], help='Task to fine-tune on')
 
     parser.add_argument("--fast_dev_run", action="store_true",
                        help="Do a test run with 1 batch for training and validation")
                       
     args = parser.parse_args()
 
-    if args.task == 'melody_completion':
+    if args.task == 'melody_completion' or args.task == 'accompaniment_suggestion':
         train_melody_completion(args)
         return
     
@@ -62,6 +65,10 @@ def main():
         tokenization=args.tokenization,
         class_weights=torch.tensor([1/(x+1e-7) for x in data_module.train_ds.genre_counts]) if args.task == 'genre' else torch.tensor([1/(x+1e-7) for x in data_module.train_ds.style_counts]),
         task=args.task
+        )
+    elif args.task == 'decode':
+        model = MusicDecoder(
+            lr=1e-3
         )
 
     if args.model_path:
