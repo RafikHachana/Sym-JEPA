@@ -16,12 +16,14 @@ def train(args):
         metadata_path=metadata_path,
         batch_size=64,
         num_workers=4,
+        top_k_composers=9 if args.task == 'composer' else None,
+        top_k_performers=20 if args.task == 'performer' else None
     )
 
     data_module.setup()
     
     model = PerformerClassifier(
-        lr=2e-4,
+        lr=1e-4,
         d_model=512,
         encoder_layers=8,
         tokenization=args.tokenization,
@@ -41,7 +43,7 @@ def train(args):
         )
 
     trainer = pl.Trainer(
-        max_epochs=args.max_epochs,
+        max_epochs=40,
         callbacks=[
             ModelCheckpoint(monitor='val_loss', mode='min', save_top_k=1, save_last=True)
         ],
