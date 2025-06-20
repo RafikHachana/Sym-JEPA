@@ -41,8 +41,7 @@ class PerformerClassifier(pl.LightningModule):
 
     def forward(self, input_ids):
         self.jepa.eval()
-        with torch.no_grad():
-            embedded = self.jepa.encode_context(input_ids)
+        embedded = self.jepa.encode_context(input_ids)
         
         pooled = self.jepa_pooler(embedded)
 
