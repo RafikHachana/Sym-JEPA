@@ -28,7 +28,8 @@ def train(args):
         encoder_layers=8,
         tokenization=args.tokenization,
         class_key=args.task,
-        num_classes=len(data_module.train_dataset.unique_performers) if args.task == "performer" else len(data_module.train_dataset.unique_composers),
+        num_classes=len(data_module.train_dataset.unique_performers) if args.task == "performer"
+        else len(data_module.train_dataset.unique_composers) if args.task == "composer" else 9,  # Assuming 9 difficulties if DIFFICULTY_IN_META is True
     )
 
     if args.model_path:

@@ -15,6 +15,7 @@ from torch.nn.utils.rnn import pad_sequence
 from pprint import pprint
 
 
+DIFFICULTY_IN_META = True  # Set to False if difficulty is not in metadata
 class PerformerClassificationDataModule(pl.LightningDataModule):
     def __init__(self, midi_base_path, metadata_path, batch_size=32, num_workers=4, top_k_performers=20, top_k_composers=None):
         super().__init__()
@@ -72,6 +73,9 @@ class SeqCollator:
         batch['input_ids'] = all_input_padded
         batch['performer'] = torch.tensor([feature['performer'] for feature in features])
         batch['composer'] = torch.tensor([feature['composer'] for feature in features])
+
+        if DIFFICULTY_IN_META:
+            batch['difficulty'] = torch.tensor([feature['difficulty'] for feature in features])
 
         return batch
 
@@ -134,9 +138,14 @@ class ATEPPDataset(Dataset):
         
         assert os.path.exists(midi_path) and os.path.isfile(midi_path), f"MIDI file not found at {midi_path}"
 
+        difficulty = row.get('difficulty', None)
+        if difficulty is not None:
+            difficulty = int(difficulty)
+
         return {
             "performer": self.performer_to_idx[row['artist']],
             "composer": self.composer_to_idx[row['composer']],
             "midi_path": midi_path,
+            "difficulty": difficulty,
             **self.midi_dataset[idx]
         }
