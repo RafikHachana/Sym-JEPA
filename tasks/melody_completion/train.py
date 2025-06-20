@@ -10,7 +10,7 @@ import torch
 torch.set_float32_matmul_precision('high')
 
 def train(args):
-    midi_files = glob(os.path.join("dataset/clean_midi", "**/*.mid"), recursive=True)[:5000]
+    midi_files = glob(os.path.join("dataset/clean_midi", "**/*.mid"), recursive=True)[:20000]
     print("Len of midi files: ", len(midi_files))
     data_module = MelodyPredictionDataModule(
         midi_files,
@@ -19,7 +19,7 @@ def train(args):
     )
     
     model = MelodyCompletionModel(
-        lr=2e-4,
+        lr=1e-5,
         d_model=512,
         encoder_layers=8,
         tokenization=args.tokenization
