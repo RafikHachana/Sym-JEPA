@@ -136,7 +136,7 @@ class SymJEPA(pl.LightningModule):
                vicreg_var_weight=25.0,
                vicreg_cov_weight=1.0,
                vicreg_loss_ratio=0.3,
-               info_nce_loss_weight=0.05,
+               info_nce_loss_weight=0.00,
                pass_target_mask_to_predictor=False,
                fuse_decoded_tokens=True,
                add_onset_positional_encoding=True,
