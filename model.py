@@ -123,7 +123,7 @@ class SymJEPA(pl.LightningModule):
                warmup_steps=700,
                max_steps=None,
                encoder_layers=16,
-               predictor_layers=4,
+               predictor_layers=2,
                intermediate_size=2048,
                num_attention_heads=8,
                description_options=None,
