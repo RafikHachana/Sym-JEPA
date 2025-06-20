@@ -10,7 +10,9 @@ from uuid import uuid4
 
 
 class MelodyPredictionDataModule(pl.LightningDataModule):
-    def __init__(self, file_paths, batch_size=32, num_workers=4):
+    def __init__(self, file_paths, batch_size=32, num_workers=4, task='melody'):
+        assert task in ['melody', 'accompaniment'], "Task must be either 'melody' or 'accompaniment'"
+        self.task = task
         super().__init__()
         self.file_paths = file_paths
         self.batch_size = batch_size
@@ -21,8 +23,8 @@ class MelodyPredictionDataModule(pl.LightningDataModule):
     def setup(self, stage=None):
         n_train = int(len(self.file_paths) * 0.995)
         n_val = len(self.file_paths) - n_train
-        self.train_dataset = MelodyPredictionDataset(self.file_paths[:n_train], negative_pairs_per_positive=1)
-        self.val_dataset = MelodyPredictionDataset(self.file_paths[n_train:], negative_pairs_per_positive=49)
+        self.train_dataset = MelodyPredictionDataset(self.file_paths[:n_train], negative_pairs_per_positive=1, task=self.task)
+        self.val_dataset = MelodyPredictionDataset(self.file_paths[n_train:], negative_pairs_per_positive=49, task=self.task)
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset, batch_size=self.batch_size, num_workers=self.num_workers, collate_fn=SeqCollator())
@@ -50,7 +52,8 @@ class SeqCollator:
 
 
 class MelodyPredictionDataset(Dataset):
-    def __init__(self, file_paths, negative_pairs_per_positive=1):
+    def __init__(self, file_paths, negative_pairs_per_positive=1, task='melody'):
+        assert task in ['melody', 'accompaniment'], "Task must be either 'melody' or 'accompaniment'"
         self.file_paths = file_paths
         self.negative_pairs_per_positive = negative_pairs_per_positive
 
@@ -61,6 +64,8 @@ class MelodyPredictionDataset(Dataset):
         # Convert from tensor to list
         self.bos = self.bos.tolist()
         self.eos = self.eos.tolist()
+
+        self.task = task
 
 
 
@@ -79,8 +84,11 @@ class MelodyPredictionDataset(Dataset):
             "uuid": []
         }
         try:
-            first_half = instance['input_ids'][:len(instance['input_ids'])//2].tolist()
-            second_half = instance['input_ids'][len(instance['input_ids'])//2:].tolist()
+            if self.task == 'melody':
+                first_half = instance['input_ids'][:len(instance['input_ids'])//2].tolist()
+                second_half = instance['input_ids'][len(instance['input_ids'])//2:].tolist()
+            elif self.task == 'accompaniment':
+                first_half, second_half = self.separate_melody_and_accompaniment(idx)
         except:
             return self._get_pairs(np.random.randint(0, len(self.midi_dataset)))
 
@@ -101,7 +109,10 @@ class MelodyPredictionDataset(Dataset):
                     random_idx = np.random.randint(0, len(self.midi_dataset))
 
                 # Get the negative pair
-                negative_match = self.midi_dataset[random_idx]['input_ids'].tolist()
+                if self.task == 'melody':
+                    negative_match = self.midi_dataset[random_idx]['input_ids'].tolist()
+                elif self.task == 'accompaniment':
+                    _, negative_match = self.separate_melody_and_accompaniment(random_idx)
                 result['input'].append(self.bos + first_half + self.eos + negative_match[len(negative_match)//2:] + self.eos)
                 assert len(result['input'][-1]) % 8 == 0, "Input length is not divisible by 8"
                 result['match'].append(0)
@@ -112,6 +123,35 @@ class MelodyPredictionDataset(Dataset):
         # Shuffle the result
         result['input'], result['match'] = shuffle(result['input'], result['match'])
         return result
+    
+    def separate_melody_and_accompaniment(self, idx):
+        instance = self.midi_dataset[idx]
+
+
+        instruments = instance['octuple_breakout']['instrument']
+        pitch = instance['octuple_breakout']['pitch']
+
+        # Find which instrument has the highest average pitch
+        pitch_per_instrument = {}
+        for i, instrument in enumerate(instruments):
+            if instrument not in pitch_per_instrument:
+                pitch_per_instrument[instrument] = []
+            pitch_per_instrument[instrument].append(pitch[i])
+
+        avg_pitch_per_instrument = {k: np.mean(v) for k, v in pitch_per_instrument.items()}
+
+        melody_instrument = max(avg_pitch_per_instrument, key=avg_pitch_per_instrument.get)
+
+        melody_indices = [i for i, instrument in enumerate(instruments) if instrument == melody_instrument]
+        accompaniment_indices = [i for i, instrument in enumerate(instruments) if instrument != melody_instrument]
+
+        octuple_melody_indices = sum(list(range(i*8, (i+1)*8)) for i in melody_indices)
+        octuple_accompaniment_indices = sum(list(range(i*8, (i+1)*8)) for i in accompaniment_indices)
+
+        melody = instance['input_ids'][octuple_melody_indices].tolist()
+        accompaniment = instance['input_ids'][octuple_accompaniment_indices].tolist()
+
+        return melody, accompaniment
 
 
         

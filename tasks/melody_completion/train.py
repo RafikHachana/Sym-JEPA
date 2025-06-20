@@ -16,6 +16,7 @@ def train(args):
         midi_files,
         batch_size=64,
         num_workers=4,
+        task='melody' if args.task == 'melody_completion' else 'accompaniment',
     )
     
     model = MelodyCompletionModel(
