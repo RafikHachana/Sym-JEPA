@@ -107,9 +107,7 @@ class GenreClassificationModel(pl.LightningModule):
 
     def forward(self, input_ids):
         self.jepa.eval()
-        with torch.no_grad():
-            encoder_hidden = self.jepa.encode_context(input_ids)
-            # encoder_hidden = encoder_hidden + self.positional_encoding
+        encoder_hidden = self.jepa.encode_context(input_ids)
         genre_hidden = self.jepa_pooler(encoder_hidden)
         logits = self.genre_classifier(genre_hidden)
         return logits
@@ -150,6 +148,12 @@ class GenreClassificationModel(pl.LightningModule):
         self.jepa.load_state_dict(torch.load(ckpt_path)['state_dict'])
         self.using_pretrained_encoder = True
     def configure_optimizers(self):
-        return torch.optim.AdamW(self.parameters(), lr=self.lr)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
+        return [optimizer], [{
+            'scheduler': torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.8, patience=20, verbose=True),
+            'monitor': 'train_loss',  # Metric to monitor
+            'interval': 'step',
+            'frequency': 1
+        }]
     
     
