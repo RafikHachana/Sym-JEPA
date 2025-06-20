@@ -3,7 +3,7 @@ from tasks.melody_completion import MelodyCompletionModel, train as train_melody
 from tasks.performer_composer_classification import train as train_performer_composer_classification
 from dataset import MidiDataModule
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from pytorch_lightning.loggers import WandbLogger
 import argparse
 from glob import glob
@@ -19,7 +19,7 @@ def main():
                       choices=['remi', 'octuple'],
                       help='Tokenization method to use (remi or octuple)')
 
-    parser.add_argument('--max_epochs', type=int, default=5)
+    parser.add_argument('--max_epochs', type=int, default=10)
     parser.add_argument('--task', type=str, default='genre',
     choices=['genre', 'style', 'melody_completion', 'performer', 'composer'], help='Task to fine-tune on')
 
@@ -36,11 +36,11 @@ def main():
         train_performer_composer_classification(args)
         return
 
-    midi_files = glob(os.path.join("dataset/lmd_full", "**/*.mid"), recursive=True)[:50000]
+    midi_files = glob(os.path.join("dataset/lmd_full", "**/*.mid"), recursive=True)
     data_module = MidiDataModule(
         midi_files,
         max_len=2048,
-        batch_size=32,
+        batch_size=16,
         num_workers=4,
         jepa_context_ratio_start=0.975,
         jepa_context_ratio_end=0.975,
@@ -55,20 +55,13 @@ def main():
     if args.task == 'genre' or args.task == 'style':
         model = GenreClassificationModel(
             num_classes=len(data_module.train_ds.all_genres) if args.task == 'genre' else len(data_module.train_ds.all_styles),
-            lr=1e-5,
+            lr=5e-7,
             d_model=512,
             encoder_layers=8,
             num_attention_heads=8,
         tokenization=args.tokenization,
         class_weights=torch.tensor([1/(x+1e-7) for x in data_module.train_ds.genre_counts]) if args.task == 'genre' else torch.tensor([1/(x+1e-7) for x in data_module.train_ds.style_counts]),
         task=args.task
-        )
-    elif args.task == 'melody_completion':
-        model = MelodyCompletionModel(
-            lr=1e-2,
-            d_model=512,
-            encoder_layers=8,
-            tokenization=args.tokenization
         )
 
     if args.model_path:
@@ -85,12 +78,13 @@ def main():
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
         callbacks=[
-            ModelCheckpoint(monitor='val_loss', mode='min', save_top_k=1, save_last=True)
+            ModelCheckpoint(monitor='val_loss', mode='min', save_top_k=1, save_last=True),
+            LearningRateMonitor(logging_interval='step')
         ],
         logger=logger,
         fast_dev_run=args.fast_dev_run,
-        accumulate_grad_batches=4,
-        log_every_n_steps=max(1, 50 // 4)
+        accumulate_grad_batches=200,
+        log_every_n_steps=max(1, 50 // 50)
     )
 
     trainer.validate(model, data_module)
