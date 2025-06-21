@@ -2,6 +2,7 @@ from tasks.genre_classification import GenreClassificationModel
 from tasks.melody_completion import MelodyCompletionModel, train as train_melody_completion
 from tasks.performer_composer_classification import train as train_performer_composer_classification
 from tasks.generate_midi import MusicDecoder
+from tasks.emotion_classification import train as train_emotion
 from dataset import MidiDataModule
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
@@ -32,14 +33,15 @@ def main():
     args = parser.parse_args()
 
     if args.task == 'melody_completion' or args.task == 'accompaniment_suggestion':
-        train_melody_completion(args)
-        return
+        return train_melody_completion(args)
     
     if args.task == 'performer' or args.task == 'composer':
-        train_performer_composer_classification(args)
-        return
+        return train_performer_composer_classification(args)
 
-    midi_files = glob(os.path.join("dataset/lmd_full", "**/*.mid"), recursive=True)
+    if args.task == 'emotion':
+        return train_emotion(args)
+
+    midi_files = glob(os.path.join("dataset/lmd_full", "**/*.mid"), recursive=True)[:100]
     data_module = MidiDataModule(
         midi_files,
         max_len=2048,
@@ -77,8 +79,9 @@ def main():
     if args.fast_dev_run:
         logger = None
     else:
+        project_name = f"symjepa-{args.task}-classification" if args.task != "decode" else "decode"
         logger = WandbLogger(
-            project=f"symjepa-{args.task}-classification",
+            project=project_name,
             entity="rh-iu",
         )
 

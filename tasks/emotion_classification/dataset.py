@@ -13,7 +13,7 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 
 
-class PerformerClassificationDataModule(pl.LightningDataModule):
+class EMOPIADataModule(pl.LightningDataModule):
     def __init__(self, midi_paths, batch_size=32, num_workers=4):
         super().__init__()
         self.batch_size = batch_size
@@ -22,6 +22,8 @@ class PerformerClassificationDataModule(pl.LightningDataModule):
         self.midi_paths = midi_paths
 
         self.setup_done = False
+
+        self.full_length = len(midi_paths)
 
     def setup(self, stage=None):
         if self.setup_done:
@@ -52,8 +54,9 @@ class SeqCollator:
         all_input_padded = pad_sequence(all_input, batch_first=True, padding_value=self.pad_token)
 
         batch['input_ids'] = all_input_padded
-        batch['performer'] = torch.tensor([feature['performer'] for feature in features])
-        batch['composer'] = torch.tensor([feature['composer'] for feature in features])
+        batch['emotional_quadrant'] = torch.tensor([feature['emotional_quadrant'] for feature in features])
+        batch['arousal_value'] = torch.tensor([feature['arousal_value'] for feature in features])
+        batch['valence_value'] = torch.tensor([feature['valence_value'] for feature in features])
 
         return batch
     
@@ -81,11 +84,11 @@ class EMOPIADataset(Dataset):
 
         self.emotional_quadrant = [emotional_quadrant_to_idx(os.path.basename(path).split('_')[0]) for path in midi_paths]
 
-        self.arousal_value = [1 if os.basename(path).split('_')[1] in ['Q2', 'Q4'] else 0 for path in midi_paths]
-        self.valence_value = [1 if os.basename(path).split('_')[1] in ['Q1', 'Q1'] else 0 for path in midi_paths]
+        self.arousal_value = [1 if os.path.basename(path).split('_')[1] in ['Q2', 'Q4'] else 0 for path in midi_paths]
+        self.valence_value = [1 if os.path.basename(path).split('_')[1] in ['Q1', 'Q1'] else 0 for path in midi_paths]
 
     def __len__(self):
-        return len(self.metadata)
+        return len(self.file_paths)
 
     def __getitem__(self, idx):
         return {
