@@ -51,6 +51,7 @@ class MidiDataModule(pl.LightningDataModule):
                genre_map='metadata/midi_genre_map.json',
                skip_unknown_genres=False,
                skip_unknown_styles=False,
+               masking_probabilities=None,
                **kwargs):
     super().__init__()
     self.batch_size = batch_size
@@ -73,6 +74,7 @@ class MidiDataModule(pl.LightningDataModule):
     self.skip_unknown_genres = skip_unknown_genres
     self.skip_unknown_styles = skip_unknown_styles
     self.num_epochs = num_epochs
+    self.masking_probabilities = masking_probabilities
     if tokenization == 'remi':
         from input_representation import RemiTokenizer
         self.tokenizer_class = RemiTokenizer
@@ -140,7 +142,8 @@ class MidiDataModule(pl.LightningDataModule):
         segment_size_ratio=self.segment_size_ratio,
         num_segments=self.num_segments,
         bos_token_id=bos,
-        eos_token_id=eos
+        eos_token_id=eos,
+        masking_probabilities=self.masking_probabilities
     )
 
     self.skipped_files = self.train_ds.skipped_files + self.valid_ds.skipped_files + self.test_ds.skipped_files
@@ -199,7 +202,8 @@ class SeqCollator:
                tokenization='remi',
                bos_token_id=None,
                eos_token_id=None,
-               mask_target_input=False):
+               mask_target_input=False,
+               masking_probabilities=None):
     self.pad_token = pad_token
     self.mask_token = mask_token
     self.context_size = context_size
@@ -217,16 +221,17 @@ class SeqCollator:
     self.bos_token_id = bos_token_id
     self.eos_token_id = eos_token_id
 
-    prob = 1/7
-    self.mask_generator = RandomMaskGenerator({
-      "transpose": 0.01,
-      "instrument": 0.19,
-      "octaves": 0.15,
-      "pitch_classes": 0.15,
-      "rhythmic_noise": 0.01,
-      "contiguous": 0.2,
-      "random": 0.29,
-    })
+    if masking_probabilities is None:
+      masking_probabilities = {
+        "transpose": 0.01,
+        "instrument": 0.19,
+        "octaves": 0.15,
+        "pitch_classes": 0.15,
+        "rhythmic_noise": 0.01,
+        "contiguous": 0.2,
+        "random": 0.29,
+      }
+    self.mask_generator = RandomMaskGenerator(masking_probabilities)
 
     self.current_context_ratio_scheduler_step = 0
 
@@ -316,7 +321,7 @@ class SeqCollator:
       for i in range(batch_size):
         ctx, tgt, new_ids, latent_var_id, mask_function = self.mask_generator(xs[i],
                                                                               features[i]['octuple_breakout'],
-                                                                              random_mask_prob=0.1,
+                                                                              random_mask_prob=0.3,
                                                                               contiguous_context_ratio=self.current_jepa_context_ratio)
         
         context_masks.append(ctx)
@@ -340,6 +345,9 @@ class SeqCollator:
       # if self.mask_target_input:
       #   target[~masks] = self.mask_token  # Mask context tokens in target
       batch['mask_functions'] = mask_functions
+      if self.masking_probabilities.get("none", 0) >= 1:
+        assert new_input_ids == xs, "No masking should not change the input ids"
+
       batch['input_ids'] = new_input_ids
       batch['context_mask'] = context_masks
       batch['target_mask'] = target_masks
