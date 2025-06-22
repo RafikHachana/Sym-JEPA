@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from transformers import BertConfig, BertModel
 from model import SymJEPA
-from octuple_tokenizer import OctupleTokenizer
+from octuple_tokenizer import OctupleTokenizer, OctupleVocab, get_max_vector, get_separate_vocabs
 
 
 class MusicDecoder(pl.LightningModule):
@@ -37,6 +37,21 @@ class MusicDecoder(pl.LightningModule):
             is_decoder=True,
             add_cross_attention=True
         ))
+        
+        # Get the vocabulary sizes for each token type
+        self.vocab_sizes = get_max_vector()
+
+        self.vocabs = get_separate_vocabs()
+
+        self.octuple_vocab = OctupleVocab()
+
+        self.token_types = ['bar', 'note', 'inst', 'pitch', 'duration', 'velocity', 'ts', 'tempo']
+        
+        # Create separate output layers for each token type
+        self.out_layers = nn.ModuleList([
+            nn.Linear(d_model, len(vocab), bias=False) 
+            for vocab in self.vocabs
+        ])
 
         self.lr = lr
         self.d_model = d_model
@@ -53,28 +68,51 @@ class MusicDecoder(pl.LightningModule):
         with torch.no_grad():
             encoder_hidden = self.jepa.encode_context(input_ids)
         
-        logits = self.generator(
-            input_ids=input_ids,
+        embeds = self.jepa.embed(input_ids)
+
+        out = self.generator(
+            inputs_embeds=embeds,
             encoder_hidden_states=encoder_hidden,
             encoder_attention_mask=None,  # Assuming no attention mask for the encoder
-            attention_mask=torch.triu(torch.ones(input_ids.shape[1], input_ids.shape[1], device=input_ids.device), diagonal=0).unsqueeze(0).repeat(input_ids.shape[0], 1, 1),  # Causal mask for decoder
-        ).logits
+            attention_mask=torch.triu(torch.ones(input_ids.shape[1]//8, input_ids.shape[1]//8, device=input_ids.device), diagonal=0).unsqueeze(0).repeat(input_ids.shape[0], 1, 1),  # Causal mask for decoder
+        ).last_hidden_state
 
+
+        # Output separate logits for each token type
+        logits = []
+        for i, out_layer in enumerate(self.out_layers):
+            logits.append(out_layer(out))
+        
         return logits
 
+    def get_loss(self, logits, labels):
+        loss = 0
+
+        for i, (logit, vocab, token_type) in enumerate(zip(logits, self.vocabs, self.token_types)):
+            relevant_labels_original_vocab = labels[:, i::8].reshape(-1)
+
+            relevant_labels = torch.tensor(vocab.encode(self.octuple_vocab.decode(relevant_labels_original_vocab.cpu())), device=logit.device)
+
+
+            token_loss = self.loss(logit.reshape(-1, len(vocab)), relevant_labels)
+            loss += token_loss
+            self.log(f'{token_type}_loss', token_loss)
+        
+        return loss
+
     def training_step(self, batch, batch_idx):
-        input_ids = batch['input_ids'][:, :-1]  # Remove the last token for prediction
-        labels = batch['input_ids'][:, 1:]  # Shift the input for the
-        logits = self(input_ids)
-        loss = self.loss(logits, labels)
+        input_ids = batch['input_ids']  # Remove the last token for prediction
+        labels = batch['input_ids'][:, 8:-8]  # Shift the input for the
+        logits = self(input_ids[:, :-16])
+        loss = self.get_loss(logits, labels)
         self.log('train_loss', loss)
         return loss
     
     def validation_step(self, batch, batch_idx):
-        input_ids = batch['input_ids'][:, :-1]  # Remove the last token for prediction
-        labels = batch['input_ids'][:, 1:]  # Shift the input for the
-        logits = self(input_ids)
-        loss = self.loss(logits, labels)
+        input_ids = batch['input_ids']  # Remove the last token for prediction
+        labels = batch['input_ids'][:, 8:-8]  # Shift the input for the
+        logits = self(input_ids[:, :-16])
+        loss = self.get_loss(logits, labels)
         self.log('val_loss', loss)
         return loss
     
