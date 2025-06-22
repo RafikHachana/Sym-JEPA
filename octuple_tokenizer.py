@@ -369,6 +369,17 @@ class OctupleVocab(Vocab):
         super().__init__(counter, specials=get_special_tokens(), unk_token="<unk>")
         
         
+def get_separate_vocabs():
+    return [
+        Vocab(Counter([f"<0-{i}>" for i in range(bar_max)]), specials=get_special_tokens(), unk_token="<unk>"),
+        Vocab(Counter([f"<1-{i}>" for i in range(beat_note_factor * max_notes_per_bar * pos_resolution)]), specials=get_special_tokens(), unk_token="<unk>"),
+        Vocab(Counter([f"<2-{i}>" for i in range(max_inst + 1 + 1)]), specials=get_special_tokens(), unk_token="<unk>"),
+        Vocab(Counter([f"<3-{i}>" for i in range(2 * max_pitch + 1 + 1)]), specials=get_special_tokens(), unk_token="<unk>"),
+        Vocab(Counter([f"<4-{i}>" for i in range(duration_max * pos_resolution)]), specials=get_special_tokens(), unk_token="<unk>"),
+        Vocab(Counter([f"<5-{i}>" for i in range(v2e(max_velocity) + 1)]), specials=get_special_tokens(), unk_token="<unk>"),
+        Vocab(Counter([f"<6-{i}>" for i in range(len(ts_list))]), specials=get_special_tokens(), unk_token="<unk>"),
+        Vocab(Counter([f"<7-{i}>" for i in range(b2e(max_tempo) + 1)]), specials=get_special_tokens(), unk_token="<unk>"),
+    ]
 
 class OctupleTokenizer(TokenizerBase):
     def version():
