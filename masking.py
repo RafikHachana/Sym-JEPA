@@ -72,7 +72,7 @@ def instrument_masking(input_ids, octuple_breakout):
             continue
         if x == instrument:
             context_mask[i*8:i*8+8] = True
-            if n_masked < 50:
+            if n_masked < 100:
                 target_mask[i*8:i*8+8] = False
             n_masked += 1
     
@@ -115,6 +115,9 @@ def rhythmic_noise_masking(input_ids, octuple_breakout):
     mask = torch.zeros_like(input_ids).bool()
     return mask, mask, input_ids, 0
 
+def no_masking(input_ids, octuple_breakout):    
+    return torch.zeros_like(input_ids).bool(), torch.zeros_like(input_ids).bool(), input_ids, 0
+
 def mask_pitch_classes(input_ids, octuple_breakout):
     pitch_classes = list(set([x % 12 for x in octuple_breakout['pitch'] if x is not None and x <= 127]))
 
@@ -134,7 +137,7 @@ def mask_pitch_classes(input_ids, octuple_breakout):
             continue
         if x % 12 == pitch_class:
             context_mask[i*8:i*8+8] = True
-            if n_masked < 50:
+            if n_masked < 100:
                 target_mask[i*8:i*8+8] = False
             n_masked += 1
 
@@ -160,7 +163,7 @@ def mask_octaves(input_ids, octuple_breakout):
             continue
         if x // 12 == octave:
             context_mask[i*8:i*8+8] = True
-            if n_masked < 50:
+            if n_masked < 100:
                 target_mask[i*8:i*8+8] = False
             n_masked += 1
 
@@ -181,6 +184,7 @@ class RandomMaskGenerator:
             "rhythmic_noise": rhythmic_noise_masking,
             "pitch_classes": mask_pitch_classes,
             "octaves": mask_octaves,
+            "none": no_masking,
         }
 
         assert all(mask_name in self.mask_functions for mask_name in self.probs), f"All mask names must be in {self.mask_functions}"
