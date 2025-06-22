@@ -7,6 +7,7 @@ from torch.nn.utils.rnn import pad_sequence
 import numpy as np
 from sklearn.utils import shuffle
 from uuid import uuid4
+import logging
 
 
 class MelodyPredictionDataModule(pl.LightningDataModule):
@@ -111,13 +112,16 @@ class MelodyPredictionDataset(Dataset):
                 # Get the negative pair
                 if self.task == 'melody':
                     negative_match = self.midi_dataset[random_idx]['input_ids'].tolist()
+                    negative_match = negative_match[len(negative_match)//2:]
                 elif self.task == 'accompaniment':
                     _, negative_match = self.separate_melody_and_accompaniment(random_idx)
-                result['input'].append(self.bos + first_half + self.eos + negative_match[len(negative_match)//2:] + self.eos)
+                result['input'].append(self.bos + first_half + self.eos + negative_match + self.eos)
                 assert len(result['input'][-1]) % 8 == 0, "Input length is not divisible by 8"
                 result['match'].append(0)
                 result['uuid'].append(first_half_uuid)
-        except:
+        except Exception as e:
+            # logging.error(f"Error in _get_pairs: {e}")
+            # logging.exception(e)
             return self._get_pairs(np.random.randint(0, len(self.midi_dataset)))
 
         # Shuffle the result
@@ -131,6 +135,7 @@ class MelodyPredictionDataset(Dataset):
         instruments = instance['octuple_breakout']['instrument']
         pitch = instance['octuple_breakout']['pitch']
 
+
         # Find which instrument has the highest average pitch
         pitch_per_instrument = {}
         for i, instrument in enumerate(instruments):
@@ -138,15 +143,16 @@ class MelodyPredictionDataset(Dataset):
                 pitch_per_instrument[instrument] = []
             pitch_per_instrument[instrument].append(pitch[i])
 
-        avg_pitch_per_instrument = {k: np.mean(v) for k, v in pitch_per_instrument.items()}
+
+        avg_pitch_per_instrument = {k: np.mean([x for x in v if x is not None]) for k, v in pitch_per_instrument.items()}
 
         melody_instrument = max(avg_pitch_per_instrument, key=avg_pitch_per_instrument.get)
 
-        melody_indices = [i for i, instrument in enumerate(instruments) if instrument == melody_instrument]
-        accompaniment_indices = [i for i, instrument in enumerate(instruments) if instrument != melody_instrument]
+        melody_indices = [i for i, instrument in enumerate(instruments) if instrument == melody_instrument or instrument is None]
+        accompaniment_indices = [i for i, instrument in enumerate(instruments) if instrument != melody_instrument or instrument is None]
 
-        octuple_melody_indices = sum(list(range(i*8, (i+1)*8)) for i in melody_indices)
-        octuple_accompaniment_indices = sum(list(range(i*8, (i+1)*8)) for i in accompaniment_indices)
+        octuple_melody_indices = sum((list(range(i*8, (i+1)*8)) for i in melody_indices), [])
+        octuple_accompaniment_indices = sum((list(range(i*8, (i+1)*8)) for i in accompaniment_indices), [])
 
         melody = instance['input_ids'][octuple_melody_indices].tolist()
         accompaniment = instance['input_ids'][octuple_accompaniment_indices].tolist()

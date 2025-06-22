@@ -59,13 +59,13 @@ class MelodyCompletionModel(pl.LightningModule):
         return logits
 
     def training_step(self, batch, batch_idx):
-        logits = self(batch['input'], batch['match'])
+        logits = self(batch['input'])
         loss = F.cross_entropy(logits, batch['match'])
         self.log('train_loss', loss)
         return loss
     
     def validation_step(self, batch, batch_idx):
-        logits = self(batch['input'], batch['match'])
+        logits = self(batch['input'])
         loss = F.cross_entropy(logits, batch['match'])
 
         probs = F.softmax(logits, dim=1)
