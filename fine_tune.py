@@ -29,6 +29,9 @@ def main():
 
     parser.add_argument("--fast_dev_run", action="store_true",
                        help="Do a test run with 1 batch for training and validation")
+
+    parser.add_argument("--limit_data", type=int, default=None,
+                       help="Limit the number of data points to use")
                       
     args = parser.parse_args()
 
@@ -41,7 +44,10 @@ def main():
     if args.task == 'emotion':
         return train_emotion(args)
 
-    midi_files = glob(os.path.join("dataset/lmd_full", "**/*.mid"), recursive=True)[:100]
+    midi_files = glob(os.path.join("dataset/lmd_full", "**/*.mid"), recursive=True)
+    if args.limit_data:
+        midi_files = midi_files[:args.limit_data]
+
     data_module = MidiDataModule(
         midi_files,
         max_len=2048,
@@ -52,7 +58,10 @@ def main():
         jepa_context_ratio_steps=100,
         skip_unknown_genres=args.task == 'genre',
         skip_unknown_styles=args.task == 'style',
-        tokenization=args.tokenization
+        tokenization=args.tokenization,
+        masking_probabilities={
+            "none": 1.0,
+        }
     )
 
     data_module.setup()
@@ -70,7 +79,7 @@ def main():
         )
     elif args.task == 'decode':
         model = MusicDecoder(
-            lr=1e-3
+            lr=1e-6
         )
 
     if args.model_path:
@@ -79,7 +88,7 @@ def main():
     if args.fast_dev_run:
         logger = None
     else:
-        project_name = f"symjepa-{args.task}-classification" if args.task != "decode" else "decode"
+        project_name = f"symjepa-{args.task}-classification" if args.task != "decode" else "symjepa-decode"
         logger = WandbLogger(
             project=project_name,
             entity="rh-iu",
