@@ -231,7 +231,9 @@ class SeqCollator:
         "contiguous": 0.2,
         "random": 0.29,
       }
-    self.mask_generator = RandomMaskGenerator(masking_probabilities)
+
+    self.masking_probabilities = masking_probabilities
+    self.mask_generator = RandomMaskGenerator(self.masking_probabilities)
 
     self.current_context_ratio_scheduler_step = 0
 
