@@ -119,8 +119,8 @@ class SymJEPA(pl.LightningModule):
                context_size=2048,
                tokenization='remi',
                lr=1e-4,
-               lr_schedule='linear',
-               warmup_steps=700,
+               lr_schedule='sqrt_decay',
+               warmup_steps=2000,
                max_steps=None,
                encoder_layers=16,
                predictor_layers=2,
@@ -362,33 +362,48 @@ class SymJEPA(pl.LightningModule):
         context_mask = context_mask[:, ::8]
     return encoder_hidden
 
+  def encode_target(self, target_ids):
+    target_emb = self.embed(target_ids)
+    target_emb = target_emb + self.positional_encoding[:, :target_emb.size(1), :]
+    out = self.target_encoder(inputs_embeds=target_emb, output_hidden_states=True)
+    target_encoder_hidden = out.last_hidden_state.detach()
+
+    return target_encoder_hidden
+
+  def predict(self, encoder_hidden, latent_var_ids, target_mask, return_attention_mask=False):
+
+    pos_enc, _ = gather_unmasked_tokens(self.positional_encoding[:, :latent_var_ids.size(1), :].repeat(latent_var_ids.size(0), 1, 1), target_mask)
+    latent_var_ids, attention_mask = gather_unmasked_tokens(latent_var_ids, target_mask)
+    latent_var = self.latent_var_in(latent_var_ids)
+    latent_var = latent_var + pos_enc
+
+    pred = self.predictor(
+        inputs_embeds=latent_var,
+        encoder_hidden_states=encoder_hidden,
+        attention_mask=attention_mask
+    )
+    pred_hidden = pred.last_hidden_state
+
+    if return_attention_mask:
+      return pred_hidden, attention_mask
+    return pred_hidden
+
   def forward(self, context_ids, target_ids=None, return_context_encoder_hidden=False, context_mask=None, target_mask=None, latent_var_ids=None):
     encoder_hidden = self.encode_context(context_ids, context_mask)
 
     if target_ids is not None:
         with torch.no_grad():
-            target_emb = self.embed(target_ids)
-            target_emb = target_emb + self.positional_encoding[:, :target_emb.size(1), :]
-            out = self.target_encoder(inputs_embeds=target_emb, output_hidden_states=True)
-            target_encoder_hidden = out.last_hidden_state.detach()
+          target_encoder_hidden = self.encode_target(target_ids)
+            
 
         if self.tokenization == 'octuple':
             target_mask = target_mask[:, ::8]
         
+
         # Adjust the size of the target and latent var
         minimized_target_encoder_hidden, _ = gather_unmasked_tokens(target_encoder_hidden, target_mask)
 
-        pos_enc, _ = gather_unmasked_tokens(self.positional_encoding[:, :latent_var_ids.size(1), :].repeat(latent_var_ids.size(0), 1, 1), target_mask)
-        latent_var_ids, attention_mask = gather_unmasked_tokens(latent_var_ids, target_mask)
-        latent_var = self.latent_var_in(latent_var_ids)
-        latent_var = latent_var + pos_enc
-
-        pred = self.predictor(
-           inputs_embeds=latent_var,
-           encoder_hidden_states=encoder_hidden,
-           attention_mask=attention_mask
-        )
-        pred_hidden = pred.last_hidden_state
+        pred_hidden, attention_mask = self.predict(encoder_hidden, latent_var_ids, target_mask, return_attention_mask=True)
 
         return pred_hidden, minimized_target_encoder_hidden, encoder_hidden, attention_mask
     return pred_hidden
@@ -582,8 +597,8 @@ class SymJEPA(pl.LightningModule):
     optimizer = torch.optim.AdamW(self.parameters(), lr=1, weight_decay=0.01)
 
     if self.lr_schedule == 'sqrt_decay':
-      # constant warmup, then 1/sqrt(n) decay starting from the initial LR
-      lr_func = lambda step: self.lr * min(1, 1/math.sqrt(max(step/self.warmup_steps, 1)))
+      # Linear warmup, then 1/sqrt(n) decay starting from the initial LR
+      lr_func = lambda step: self.lr * min(step/self.warmup_steps, 1/math.sqrt(max(step/self.warmup_steps, 1)))
     elif self.lr_schedule == 'linear':
       # linear warmup, linear decay
       lr_func = lambda step: min(self.lr, self.lr*step/self.warmup_steps, self.lr*(1 - (step - self.warmup_steps)/self.max_steps))
