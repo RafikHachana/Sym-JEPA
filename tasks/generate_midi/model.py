@@ -65,27 +65,87 @@ class MusicDecoder(pl.LightningModule):
         self.save_hyperparameters()
 
 
-    def forward(self, input_ids):
+    def forward(self, input_ids, sampling_prob=0.0):
         self.jepa.eval()
         with torch.no_grad():
             encoder_hidden = self.jepa.encode_context(input_ids)
-        
-        embeds = self.jepa.embed(input_ids)
 
+        # Prepare causal mask
+        seq_len = input_ids.shape[1]
+        causal_mask = torch.triu(
+            torch.ones(seq_len // 8, seq_len // 8, device=input_ids.device),
+            diagonal=0
+        ).unsqueeze(0).repeat(input_ids.shape[0], 1, 1)
+
+        input_ids_model = input_ids
+
+        # Efficient vectorized scheduled sampling
+        if sampling_prob > 0.0:
+            with torch.no_grad():
+                embeds = self.jepa.embed(input_ids)
+                teacher_forced_out = self.generator(
+                    inputs_embeds=embeds,
+                    encoder_hidden_states=encoder_hidden,
+                    encoder_attention_mask=None,
+                    attention_mask=causal_mask,
+                ).last_hidden_state
+
+                teacher_forced_logits = []
+                for i, out_layer in enumerate(self.out_layers):
+                    teacher_forced_logits.append(out_layer(teacher_forced_out))
+
+
+            # Sample from teacher-forced logits
+            sampled_tokens = []
+            for l in teacher_forced_logits:
+                # print("Logit shape: ", l.shape)
+                # sampled_tokens.append(torch.multinomial(
+                #     torch.softmax(l, dim=-1),
+                #     num_samples=1
+                # ).squeeze(-1))
+
+                sampled_tokens.append(torch.argmax(l, dim=-1))
+
+            all_sampled_tokens = []
+            for i in range(sampled_tokens[0].shape[1]):
+                for j in range(8):
+                    all_sampled_tokens.append(sampled_tokens[j][:, i])
+
+            for i in range(len(all_sampled_tokens)):
+                all_sampled_tokens[i] = torch.tensor(self.octuple_vocab.encode(self.vocabs[i%8].decode(all_sampled_tokens[i].cpu())), device=input_ids.device).unsqueeze(-1)
+
+                # print("Sampled token: ", all_sampled_tokens[i].shape)
+
+            sampled_tokens = torch.cat(all_sampled_tokens, dim=1)
+
+
+            # print("Sampled tokens: ", sampled_tokens.shape)
+
+            # Don't replace the first token (usually BOS)
+            sampling_mask = (torch.rand_like(input_ids[:, 8:].float()) < sampling_prob)
+            sampling_mask[:, 0] = False  # always use BOS
+
+            # Apply scheduled sampling
+            input_ids_model = torch.where(sampling_mask, sampled_tokens[:, :-8], input_ids[:, 8:])
+
+            input_ids_model = torch.cat((input_ids[:, :8], input_ids_model), dim=1)
+
+        embeds = self.jepa.embed(input_ids_model)
+        # Forward pass using possibly modified input_ids_model
         out = self.generator(
             inputs_embeds=embeds,
             encoder_hidden_states=encoder_hidden,
-            encoder_attention_mask=None,  # Assuming no attention mask for the encoder
-            attention_mask=torch.triu(torch.ones(input_ids.shape[1]//8, input_ids.shape[1]//8, device=input_ids.device), diagonal=0).unsqueeze(0).repeat(input_ids.shape[0], 1, 1),  # Causal mask for decoder
+            encoder_attention_mask=None,
+            attention_mask=causal_mask,
         ).last_hidden_state
-
 
         # Output separate logits for each token type
         logits = []
         for i, out_layer in enumerate(self.out_layers):
             logits.append(out_layer(out))
-        
+
         return logits
+
 
     def get_loss(self, logits, labels, fold='train'):
         loss = 0
@@ -106,13 +166,18 @@ class MusicDecoder(pl.LightningModule):
             accuracy = (logit.reshape(-1, len(vocab)).argmax(dim=-1) == relevant_labels).float().mean()
             self.log(f'{fold}_{token_type}_accuracy', accuracy)
             avg_accuracy += accuracy
+
+            # Log the last token accuracy?
         
         return loss, avg_accuracy / len(self.token_types)
 
     def training_step(self, batch, batch_idx):
+        sampling_prob = 0.0
+        if batch_idx > 200:
+            sampling_prob = 0.5
         input_ids = batch['input_ids']  # Remove the last token for prediction
         labels = batch['input_ids'][:, 8:-8]  # Shift the input for the
-        logits = self(input_ids[:, :-16])
+        logits = self(input_ids[:, :-16], sampling_prob=sampling_prob)
         loss, accuracy = self.get_loss(logits, labels, fold='train')
         self.log('train_loss', loss)
         self.log('train_accuracy', accuracy)
@@ -121,27 +186,35 @@ class MusicDecoder(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         input_ids = batch['input_ids']  # Remove the last token for prediction
         labels = batch['input_ids'][:, 8:-8]  # Shift the input for the
-        logits = self(input_ids[:, :-16])
+        logits = self(input_ids[:, :-16], sampling_prob=0.1)
         loss, accuracy = self.get_loss(logits, labels, fold='val')
         self.log('val_loss', loss)
         self.log('val_accuracy', accuracy)
+
+        # Try accuracy without teacher-forcing (only on a few batches because it takes time)
+        if batch_idx % 400 == 0:
+            decoded = self.decode(self.jepa.encode_context(input_ids))
+            self.log('val_autoreg_acc', (decoded == input_ids).float().mean())
         return loss
     
-    def decode(self, encoder_hidden):
-        
-        bos = OctupleTokenizer.get_bos_eos_tokens()[0]
+    def decode(self, encoder_hidden, initial_tokens=None, use_tqdm=False):
         octuple_vocab = OctupleVocab()
-        bos_encoded = torch.tensor([octuple_vocab.encode([bos])], device=self.device).repeat(encoder_hidden.shape[0], 8)
-
-
-
-        generated_ids = bos_encoded
+        if initial_tokens is not None:
+            generated_ids = initial_tokens.to(self.device)
+        else:
+            bos = OctupleTokenizer.get_bos_eos_tokens()[0]
+            bos_encoded = torch.tensor([octuple_vocab.encode([bos])], device=self.device).repeat(encoder_hidden.shape[0], 8)
+            generated_ids = bos_encoded
         # print("Autoregressively generating OctupleMIDI tokens...")
         # We can either count on the decoder to generate the EOS token or we can manually add it
 
         music_format = "🎼 {desc}: {percentage:3.0f}%|{bar:100}|[{elapsed}<{remaining}]"
 
-        for _ in tqdm(range(encoder_hidden.shape[1]), colour='cyan', desc='Generating OctupleMIDI tokens', bar_format=music_format): 
+        it = range(encoder_hidden.shape[1]-1)
+        if use_tqdm:
+            it = tqdm(it, colour='cyan', desc='Generating OctupleMIDI tokens', bar_format=music_format)
+
+        for _ in it: 
 
             generated_embeds = self.jepa.embed(generated_ids)
             out = self.generator(
@@ -158,12 +231,15 @@ class MusicDecoder(pl.LightningModule):
 
                 predicted_id_in_sub_vocab = logit[:, -1:, :].argmax(dim=-1)
 
+                # print(predicted_id_in_sub_vocab.shape)
 
-                predicted_id = torch.tensor(octuple_vocab.encode(vocab.decode(predicted_id_in_sub_vocab.cpu())), device=self.device).unsqueeze(0)
+
+                predicted_id = torch.tensor(octuple_vocab.encode(vocab.decode(predicted_id_in_sub_vocab.cpu())), device=self.device)
 
                 # print("Predicted id shape: ", predicted_id.shape)
 
-                generated_ids = torch.cat((generated_ids, predicted_id), dim=1)
+                generated_ids = torch.cat((generated_ids, predicted_id.unsqueeze(-1)), dim=1)
+            # print(generated_ids)
         
         return generated_ids
 
@@ -211,9 +287,11 @@ class MusicDecoder(pl.LightningModule):
 
         decoder_input[minimized_target_mask == 0] = predictor_output
 
+        initial_ids = input_ids[:, :mask_positions[0]]
 
         # Generate the instrument
-        instrument_ids = self.decode(decoder_input)
+        instrument_ids = self.decode(self.jepa.encode_context(input_ids.long().to(self.device)), initial_tokens=initial_ids)
+        # instrument_ids = self.decode(decoder_input, initial_tokens=initial_ids)
 
         return instrument_ids
 
