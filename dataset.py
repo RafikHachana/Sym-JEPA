@@ -587,6 +587,7 @@ class MidiDataset(torch.utils.data.Dataset):
             return {
               'input_ids': src,
               'file': os.path.basename(file),
+              'file_path': file,
               # 'bar_ids': b_ids,
               'file_id': file_id,
               # 'position_ids': p_ids,
