@@ -513,34 +513,52 @@ def encoding_to_MIDI(encoding):
         pos_to_tempo[bar_to_pos[i[0]] + i[1]].append(i[7])
     pos_to_tempo = [round(sum(i) / len(i)) if len(i) >
                     0 else None for i in pos_to_tempo]
+
+    # print("Pos to tempo: ", pos_to_tempo)
     for i in range(len(pos_to_tempo)):
         if pos_to_tempo[i] is None:
             pos_to_tempo[i] = b2e(120.0) if i == 0 else pos_to_tempo[i - 1]
     midi_obj = miditoolkit.midi.parser.MidiFile()
 
+    # midi_obj.ticks_per_beat = 384
+
     def get_tick(bar, pos):
         return (bar_to_pos[bar] + pos) * midi_obj.ticks_per_beat // pos_resolution
-    midi_obj.instruments = [miditoolkit.containers.Instrument(program=(
-        0 if i == 128 else i), is_drum=(i == 128), name=str(i)) for i in range(128 + 1)]
+    print("ticks per beat: ", midi_obj.ticks_per_beat)
+    midi_obj.instruments = [miditoolkit.midi.containers.Instrument(program=(
+        0 if i == 128 else i), is_drum=(i == 128), name=str(i) if i != 128 else "DRUMS") for i in range(128 + 1)]
+
     for i in encoding:
+        # print("bar, pos: ", i[0], i[1])
         start = get_tick(i[0], i[1])
         program = i[2]
-        pitch = (i[3] - 128 if program == 128 else i[3])
+        pitch = i[3] if i[3] < 128 else i[3] - 128
         duration = get_tick(0, e2d(i[4]))
         if duration == 0:
             duration = 1
         end = start + duration
         velocity = e2v(i[5])
-        midi_obj.instruments[program].notes.append(miditoolkit.containers.Note(
+
+        # assert program < 128 and program >= 0, f"Program {program} is out of range"
+        assert pitch < 128 and pitch >= 0, f"Pitch {pitch} is out of range. Program {program}"
+        assert velocity < 128 and velocity >= 0, f"Velocity {velocity} is out of range. Program {program}"
+        assert start >= 0 and end >= 0, f"Start {start} or end {end} is out of range"
+        assert start < end, f"Start {start} is not less than end {end}"
+
+        # print(start, end, pitch, velocity, program)
+        
+        midi_obj.instruments[program].notes.append(miditoolkit.midi.containers.Note(
             start=start, end=end, pitch=pitch, velocity=velocity))
     midi_obj.instruments = [
         i for i in midi_obj.instruments if len(i.notes) > 0]
+
+    print("instruments: ", midi_obj.instruments)
     cur_ts = None
     for i in range(len(bar_to_timesig)):
         new_ts = bar_to_timesig[i]
         if new_ts != cur_ts:
             numerator, denominator = e2t(new_ts)
-            midi_obj.time_signature_changes.append(miditoolkit.containers.TimeSignature(
+            midi_obj.time_signature_changes.append(miditoolkit.midi.containers.TimeSignature(
                 numerator=numerator, denominator=denominator, time=get_tick(i, 0)))
             cur_ts = new_ts
     cur_tp = None
@@ -549,7 +567,7 @@ def encoding_to_MIDI(encoding):
         if new_tp != cur_tp:
             tempo = e2b(new_tp)
             midi_obj.tempo_changes.append(
-                miditoolkit.containers.TempoChange(tempo=tempo, time=get_tick(0, i)))
+                miditoolkit.midi.containers.TempoChange(tempo=tempo, time=get_tick(0, i)))
             cur_tp = new_tp
     return midi_obj
 
