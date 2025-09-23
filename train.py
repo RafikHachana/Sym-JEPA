@@ -6,6 +6,9 @@ from pytorch_lightning.loggers import MLFlowLogger
 from dotenv import load_dotenv
 import torch
 from pytorch_lightning.callbacks import ModelCheckpoint
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 # Enable better Tensor Core utilization on NVIDIA GPUs
 torch.set_float32_matmul_precision('high')
 
@@ -66,6 +69,71 @@ def add_model_specific_args(parent_parser):
                        help="Learning rate")
     return parent_parser
 
+def run_downstream_task(task, model_path, output_dir, tokenization, max_epochs=10, run_name=None):
+    """Run a single downstream task using subprocess."""
+    print(f"Starting downstream task: {task}")
+    
+    cmd = [
+        sys.executable, "fine_tune.py",
+        "--task", task,
+        "--output_dir", output_dir,
+        "--tokenization", tokenization,
+        "--max_epochs", "3",
+        "--run_name", run_name
+    ]
+    
+    if model_path:
+        cmd.extend(["--model_path", model_path])
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        print(f"✓ Completed downstream task: {task}")
+        return {"task": task, "success": True, "stdout": result.stdout}
+    except subprocess.CalledProcessError as e:
+        print(f"✗ Failed downstream task: {task}")
+        print(f"Error: {e.stderr}")
+        return {"task": task, "success": False, "error": e.stderr}
+
+def run_all_downstream_tasks(model_path, output_dir, tokenization, max_epochs=10, max_workers=3, run_name=None):
+    """Run all downstream tasks with limited concurrency."""
+    downstream_tasks = [
+        'genre', 'style', 'melody_completion',
+        'performer',
+        'composer',
+        # 'decode',
+        'accompaniment_suggestion',
+        # 'difficulty', 'emotion'
+    ]
+    
+    print(f"Starting {len(downstream_tasks)} downstream tasks with max {max_workers} concurrent processes...")
+    
+    results = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_task = {
+            executor.submit(run_downstream_task, task, model_path, output_dir, tokenization, max_epochs, run_name): task
+            for task in downstream_tasks
+        }
+        
+        # Process completed tasks
+        for future in as_completed(future_to_task):
+            result = future.result()
+            results.append(result)
+            print(f"Progress: {len(results)}/{len(downstream_tasks)} tasks completed")
+    
+    # Summary
+    successful_tasks = [r for r in results if r["success"]]
+    failed_tasks = [r for r in results if not r["success"]]
+    
+    print(f"\n=== Downstream Tasks Summary ===")
+    print(f"✓ Successful: {len(successful_tasks)}/{len(downstream_tasks)}")
+    if failed_tasks:
+        print(f"✗ Failed: {len(failed_tasks)}")
+        for task in failed_tasks:
+            print(f"  - {task['task']}")
+    
+    return results
+
 def main():
     # Load environment variables from .env file
     load_dotenv()
@@ -79,6 +147,11 @@ def main():
                        default=int(os.getenv('MAX_EPOCHS', 100)),
                        help="Number of training epochs")
 
+    parser.add_argument("--train_downstream_tasks", action="store_true",
+                       help="Automatically train and log downstream task results after pretraining.")
+
+    parser.add_argument("--run_name", type=str, default=None, help="Custom run name for logging")
+
     args = parser.parse_args()
 
     # Initialize logger based on fast_dev_run
@@ -89,6 +162,7 @@ def main():
         logger = MLFlowLogger(
             experiment_name=os.getenv('MLFLOW_EXPERIMENT_NAME', 'symjepa'),
             tracking_uri=os.getenv('MLFLOW_TRACKING_URI', './mlruns'),
+            run_name=args.run_name
         )
 
    
@@ -151,7 +225,7 @@ def main():
         accumulate_grad_batches=GRADIENT_ACCUMULATION_N_BATCHES,
         gradient_clip_val=1.0,
         log_every_n_steps=max(1, 50 // GRADIENT_ACCUMULATION_N_BATCHES),
-        val_check_interval=0.1  # Run validation 10 times per epoch
+        val_check_interval=0.25  # Run validation 10 times per epoch
     )
 
     # Log hyperparameters only if not in fast_dev_run mode
@@ -169,6 +243,48 @@ def main():
 
     # Begin training
     trainer.fit(model, data_module)
+
+    # Run downstream tasks if requested
+    if args.train_downstream_tasks:
+        print("\n=== Starting Downstream Task Training ===")
+        
+        # Get the best checkpoint path
+        best_model_path = None
+        if hasattr(trainer.checkpoint_callback, 'best_model_path') and trainer.checkpoint_callback.best_model_path:
+            best_model_path = trainer.checkpoint_callback.best_model_path
+            print(f"Using best checkpoint: {best_model_path}")
+        else:
+            print("No best checkpoint found, running downstream tasks without pretrained weights")
+        
+        # Create output directory for downstream tasks
+        downstream_output_dir = os.path.join(output_dir, 'downstream_tasks')
+        os.makedirs(downstream_output_dir, exist_ok=True)
+        
+        # Run all downstream tasks
+        downstream_results = run_all_downstream_tasks(
+            model_path=best_model_path,
+            output_dir=downstream_output_dir,
+            tokenization=args.tokenization,
+            max_epochs=10,  # Default 10 epochs for downstream tasks
+            max_workers=3,
+            run_name=args.run_name
+        )
+        
+        # Log downstream results to MLflow if logger is available
+        if logger is not None:
+            successful_count = sum(1 for r in downstream_results if r["success"])
+            logger.experiment.log_metric(
+                run_id=logger.run_id,
+                key="downstream_tasks_successful",
+                value=successful_count
+            )
+            logger.experiment.log_metric(
+                run_id=logger.run_id,
+                key="downstream_tasks_total",
+                value=len(downstream_results)
+            )
+
+    
     
 if __name__ == "__main__":
     main() 

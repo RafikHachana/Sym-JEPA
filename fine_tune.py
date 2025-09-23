@@ -32,6 +32,9 @@ def main():
 
     parser.add_argument("--limit_data", type=int, default=None,
                        help="Limit the number of data points to use")
+
+    parser.add_argument("--run_name", type=str, default=None, help="Custom run name for logging")
+    
                       
     args = parser.parse_args()
 
@@ -92,6 +95,7 @@ def main():
         logger = MLFlowLogger(
             experiment_name=experiment_name,
             tracking_uri="./mlruns",
+            run_name=args.run_name
         )
 
     trainer = pl.Trainer(
