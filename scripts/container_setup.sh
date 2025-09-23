@@ -1,7 +1,7 @@
 #! /bin/bash
 
 apt update
-apt install git
+apt install git tmux
 
 # Change username and email if needed
 git config --global user.name "RafikHachana"
@@ -11,3 +11,8 @@ git config --global credential.helper 'cache --timeout=7200'
 
 git clone https://github.com/RafikHachana/Sym-JEPA.git
 
+cd Sym-JEPA
+
+conda env create -f environment.yml
+
+conda activate symjepa
