@@ -1,0 +1,15 @@
+artifact_uri: /root/Sym-JEPA/mlruns/424322880123165233/ca8e15ae712e44528fd49143541106c2/artifacts
+end_time: 1758638305491
+entry_point_name: ''
+experiment_id: '424322880123165233'
+lifecycle_stage: active
+run_id: ca8e15ae712e44528fd49143541106c2
+run_name: intrigued-wren-703
+run_uuid: ca8e15ae712e44528fd49143541106c2
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1758638304017
+status: 4
+tags: []
+user_id: root

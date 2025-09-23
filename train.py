@@ -2,10 +2,9 @@ import argparse
 import os
 from glob import glob
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.loggers import MLFlowLogger
 from dotenv import load_dotenv
 import torch
-import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint
 # Enable better Tensor Core utilization on NVIDIA GPUs
 torch.set_float32_matmul_precision('high')
@@ -71,10 +70,10 @@ def main():
     # Load environment variables from .env file
     load_dotenv()
 
-    parser = argparse.ArgumentParser(description="Train Sym-JEPA with Weights & Biases logging")
+    parser = argparse.ArgumentParser(description="Train Sym-JEPA with MLflow logging")
     parser = add_model_specific_args(parser)
     parser.add_argument("--midi_dir", type=str, 
-                       default=os.getenv('MIDI_DIR', './dataset/lmd_full/'),
+                       default=os.getenv('MIDI_DIR', './dataset/clean_midi/'),
                        help="Directory containing MIDI files")
     parser.add_argument("--max_epochs", type=int,
                        default=int(os.getenv('MAX_EPOCHS', 100)),
@@ -85,17 +84,18 @@ def main():
     # Initialize logger based on fast_dev_run
     if args.fast_dev_run:
         logger = None
-        print("Fast dev run enabled - wandb logging disabled")
+        print("Fast dev run enabled - MLflow logging disabled")
     else:
-        logger = WandbLogger(
-            project=os.getenv('WANDB_PROJECT', 'symjepa'),
-            entity=os.getenv('WANDB_ENTITY'),
+        logger = MLFlowLogger(
+            experiment_name=os.getenv('MLFLOW_EXPERIMENT_NAME', 'symjepa'),
+            tracking_uri=os.getenv('MLFLOW_TRACKING_URI', './mlruns'),
         )
 
    
 
     # Prepare the data module
     midi_files = glob(os.path.join(args.midi_dir, "**/*.mid"), recursive=True)
+    print(f"MIDI glob: {os.path.join(args.midi_dir, '**/*.mid')}")
     print(f"Found {len(midi_files)} MIDI files")
     if args.limit:
         midi_files = midi_files[:args.limit]
