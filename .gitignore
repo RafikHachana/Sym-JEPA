@@ -13,3 +13,22 @@ symjepa-genre-classification
 lightning_logs/
 dataset
 *.ckpt
+
+
+# Model files
+*.pth
+*.pkl
+*.h5
+*.ckpt
+
+# Large data files
+*.wav
+*.mp3
+*.midi
+*.mid
+
+# Temporary files
+temp/
+__pycache__/
+*.pyc
+.DS_Store
