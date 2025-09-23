@@ -19,3 +19,4 @@ dependencies:
     - torchdata==0.6.1
     - wandb==0.19.7
     - python-dotenv==1.0.1
+    - miditoolkit==1.0.1
