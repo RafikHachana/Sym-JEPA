@@ -1,7 +1,7 @@
 #! /bin/bash
 
 apt update
-apt install git tmux
+apt install git tmux unzip
 
 # Change username and email if needed
 git config --global user.name "RafikHachana"
