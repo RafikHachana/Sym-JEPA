@@ -150,7 +150,8 @@ def main():
         ],
         accumulate_grad_batches=GRADIENT_ACCUMULATION_N_BATCHES,
         gradient_clip_val=1.0,
-        log_every_n_steps=max(1, 50 // GRADIENT_ACCUMULATION_N_BATCHES)
+        log_every_n_steps=max(1, 50 // GRADIENT_ACCUMULATION_N_BATCHES),
+        val_check_interval=0.1  # Run validation 10 times per epoch
     )
 
     # Log hyperparameters only if not in fast_dev_run mode

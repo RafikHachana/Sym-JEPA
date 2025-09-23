@@ -6,7 +6,7 @@ from tasks.emotion_classification import train as train_emotion
 from dataset import MidiDataModule
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
-from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.loggers import MLFlowLogger
 import argparse
 from glob import glob
 import os
@@ -88,10 +88,10 @@ def main():
     if args.fast_dev_run:
         logger = None
     else:
-        project_name = f"symjepa-{args.task}-classification" if args.task != "decode" else "symjepa-decode"
-        logger = WandbLogger(
-            project=project_name,
-            entity="rh-iu",
+        experiment_name = f"symjepa-{args.task}-classification" if args.task != "decode" else "symjepa-decode"
+        logger = MLFlowLogger(
+            experiment_name=experiment_name,
+            tracking_uri="./mlruns",
         )
 
     trainer = pl.Trainer(

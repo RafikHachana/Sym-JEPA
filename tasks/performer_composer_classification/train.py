@@ -2,7 +2,7 @@ from .model import PerformerClassifier
 from .atepp_dataset import PerformerClassificationDataModule
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.loggers import MLFlowLogger
 import os
 import torch
 torch.set_float32_matmul_precision('high')
@@ -38,9 +38,9 @@ def train(args):
     if args.fast_dev_run:
         logger = None
     else:
-        logger = WandbLogger(
-            project=f"symjepa-{args.task}-cls",
-            entity="rh-iu",
+        logger = MLFlowLogger(
+            experiment_name=f"symjepa-{args.task}-cls",
+            tracking_uri="./mlruns",
         )
 
     trainer = pl.Trainer(

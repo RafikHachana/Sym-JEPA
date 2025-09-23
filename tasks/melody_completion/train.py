@@ -2,7 +2,7 @@ from .model import MelodyCompletionModel
 from .dataset import MelodyPredictionDataModule
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.loggers import MLFlowLogger
 import argparse
 from glob import glob
 import os
@@ -34,9 +34,9 @@ def train(args):
     if args.fast_dev_run:
         logger = None
     else:
-        logger = WandbLogger(
-            project=f"symjepa-{args.task}-classification",
-            entity="rh-iu",
+        logger = MLFlowLogger(
+            experiment_name=f"symjepa-{args.task}-classification",
+            tracking_uri="./mlruns",
         )
 
     trainer = pl.Trainer(
