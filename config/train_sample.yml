@@ -1,0 +1,32 @@
+dataset:
+  midi_dir: dataset/clean_midi
+  limit: null
+  max_len: 2048
+
+model:
+  tokenization: remi
+  use_mask_padding: false
+  masking_mode: contiguous
+  masking_probability: 0.25
+  segment_size_ratio: 0.1
+  num_segments: 3
+  use_vicreg: false
+  vicreg_sim_weight: 1.0
+  vicreg_var_weight: 40.0
+  vicreg_cov_weight: 10.0
+  vicreg_loss_ratio: 0.3
+  pass_target_mask_to_predictor: false
+
+training:
+  max_epochs: 5
+  lr: 0.05
+  limit_batches: null
+  fast_dev_run: false
+  jepa_context_ratio_start: 0.95
+  jepa_context_ratio_end: 0.6
+
+fine_tuning: {}
+
+misc:
+  output_dir: output/pretrain_sample
+  run_name: sample-pretrain

@@ -1,7 +1,10 @@
 import argparse
+import copy
 import numbers
 import os
 from glob import glob
+from types import SimpleNamespace
+from typing import Any, Dict, Optional
 
 from tasks.genre_classification import GenreClassificationModel
 from tasks.melody_completion import MelodyCompletionModel, train as train_melody_completion
@@ -13,33 +16,72 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from pytorch_lightning.loggers import MLFlowLogger
 import torch
+import yaml
 torch.set_float32_matmul_precision('high')
 
 DEFAULT_FINE_TUNE_OUTPUT = os.getenv('FINE_TUNE_OUTPUT_DIR', './output/fine_tune')
 
 
-def build_fine_tune_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model_path", type=str, required=False)
-    parser.add_argument("--output_dir", type=str, default=DEFAULT_FINE_TUNE_OUTPUT)
-    parser.add_argument('--tokenization', type=str, default='remi',
-                      choices=['remi', 'octuple'],
-                      help='Tokenization method to use (remi or octuple)')
+def _default_fine_tune_config() -> Dict[str, Any]:
+    base_output = os.getenv('FINE_TUNE_OUTPUT_DIR', './output/fine_tune')
+    return {
+        "dataset": {
+            "limit_data": None,
+        },
+        "model": {
+            "tokenization": "remi",
+        },
+        "training": {
+            "max_epochs": 10,
+            "fast_dev_run": False,
+        },
+        "misc": {
+            "task": 'genre',
+            "output_dir": base_output,
+            "run_name": None,
+            "model_path": None,
+        },
+    }
 
-    parser.add_argument('--max_epochs', type=int, default=10)
-    parser.add_argument('--task', type=str, default='genre',
-    choices=['genre', 'style', 'melody_completion',
-             'performer', 'composer', 'decode',
-             'accompaniment_suggestion', 'difficulty', 'emotion'], help='Task to fine-tune on')
 
-    parser.add_argument("--fast_dev_run", action="store_true",
-                       help="Do a test run with 1 batch for training and validation")
+def _deep_update(target: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, Any]:
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(target.get(key), dict):
+            _deep_update(target[key], value)
+        else:
+            target[key] = value
+    return target
 
-    parser.add_argument("--limit_data", type=int, default=None,
-                       help="Limit the number of data points to use")
 
-    parser.add_argument("--run_name", type=str, default=None, help="Custom run name for logging")
-    return parser
+def _load_yaml_config(path: Optional[str]) -> Dict[str, Any]:
+    if not path:
+        return {}
+    with open(path, "r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    if not isinstance(data, dict):
+        raise ValueError(f"Configuration at {path} must be a mapping.")
+    return data
+
+
+def load_fine_tune_config(path: Optional[str], overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Load fine-tuning configuration from YAML and merge with defaults and overrides."""
+    defaults = _default_fine_tune_config()
+    config = copy.deepcopy(defaults)
+    file_config = _load_yaml_config(path)
+    _deep_update(config, file_config)
+    if overrides:
+        _deep_update(config, overrides)
+
+    for section, section_defaults in defaults.items():
+        section_cfg = config.setdefault(section, {})
+        if not isinstance(section_cfg, dict):
+            raise ValueError(f"Fine-tune config section '{section}' must be a mapping.")
+        if isinstance(section_defaults, dict):
+            for key, default_value in section_defaults.items():
+                if section_cfg.get(key) is None:
+                    section_cfg[key] = default_value
+
+    return config
 
 
 def _extract_scalar_metrics(metric_dict):
@@ -58,7 +100,34 @@ def _extract_scalar_metrics(metric_dict):
     return scalars
 
 
-def run_fine_tuning(args: argparse.Namespace) -> dict:
+def run_fine_tuning(config: Dict[str, Any]) -> Dict[str, Any]:
+    config = copy.deepcopy(config)
+    defaults = _default_fine_tune_config()
+    for section, section_defaults in defaults.items():
+        section_cfg = config.setdefault(section, {})
+        if not isinstance(section_cfg, dict):
+            raise ValueError(f"Fine-tune config section '{section}' must be a mapping.")
+        if isinstance(section_defaults, dict):
+            for key, default_value in section_defaults.items():
+                if section_cfg.get(key) is None:
+                    section_cfg[key] = default_value
+
+    combined: Dict[str, Any] = {}
+    for section in ("dataset", "model", "training", "misc"):
+        combined.update(config.get(section, {}))
+
+    args = SimpleNamespace(**combined)
+
+    args.fast_dev_run = bool(getattr(args, "fast_dev_run", False))
+    if getattr(args, "limit_data", None) is not None:
+        args.limit_data = int(args.limit_data)
+    args.max_epochs = int(getattr(args, "max_epochs", 10))
+    args.tokenization = str(getattr(args, "tokenization", "remi"))
+    args.task = str(getattr(args, "task", "genre"))
+    if getattr(args, "output_dir", None) is None:
+        args.output_dir = os.getenv('FINE_TUNE_OUTPUT_DIR', DEFAULT_FINE_TUNE_OUTPUT)
+    args.output_dir = os.fspath(args.output_dir)
+
     os.makedirs(args.output_dir, exist_ok=True)
 
     if args.task in {'melody_completion', 'accompaniment_suggestion'}:
@@ -166,9 +235,21 @@ def run_fine_tuning(args: argparse.Namespace) -> dict:
 
 
 def main():
-    parser = build_fine_tune_parser()
-    args = parser.parse_args()
-    run_fine_tuning(args)
+    parser = argparse.ArgumentParser(description="Fine-tune Sym-JEPA using a YAML configuration file.")
+    parser.add_argument("--config", type=str, help="Path to YAML config describing the fine-tuning run.")
+    parser.add_argument(
+        "--fast_dev_run",
+        action="store_true",
+        help="Override config to enable Lightning fast_dev_run for smoke testing.",
+    )
+    cli_args = parser.parse_args()
+
+    overrides: Dict[str, Any] = {}
+    if cli_args.fast_dev_run:
+        overrides.setdefault("training", {})["fast_dev_run"] = True
+
+    config = load_fine_tune_config(cli_args.config, overrides=overrides)
+    run_fine_tuning(config)
 
 
 if __name__ == "__main__":

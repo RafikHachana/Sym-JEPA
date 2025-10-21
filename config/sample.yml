@@ -1,0 +1,49 @@
+experiment:
+  name: symjepa-sample
+  metric: pretrain_val_loss
+  mode: min
+  num_samples: 2
+
+ray:
+  address: null
+  namespace: null
+
+resources:
+  cpu: 4
+  gpu: 0
+
+scheduler:
+  type: ASHA
+  max_t: 10
+  grace_period: 2
+  reduction_factor: 3
+
+pretrain:
+  config_path: config/train_sample.yml
+  overrides:
+    misc:
+      run_name: symjepa-pretrain-${tune.trial_id}
+
+finetune:
+  shared_overrides:
+    misc:
+      run_name: symjepa-finetune-${tune.trial_id}
+  tasks:
+    genre:
+      config_path: config/finetune_genre_sample.yml
+      overrides:
+        training:
+          max_epochs: 2
+
+param_space:
+  seed: !choice [42, 1337]
+  pretrain:
+    training:
+      lr: !loguniform [0.0005, 0.01]
+      max_epochs: !choice [3, 4]
+    dataset:
+      limit: !choice [null, 100]
+  finetune:
+    shared:
+      training:
+        max_epochs: !choice [2, 3]

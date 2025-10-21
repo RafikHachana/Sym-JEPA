@@ -1,0 +1,15 @@
+dataset:
+  limit_data: 128
+
+model:
+  tokenization: remi
+
+training:
+  max_epochs: 3
+  fast_dev_run: false
+
+misc:
+  task: genre
+  output_dir: output/finetune_genre_sample
+  run_name: sample-genre
+  model_path: null
