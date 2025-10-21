@@ -3,7 +3,7 @@ from collections import Counter
 import torchtext
 from torch import Tensor
 
-from constants import (
+from src.constants import (
   DEFAULT_VELOCITY_BINS,
   DEFAULT_DURATION_BINS,
   DEFAULT_TEMPO_BINS,
@@ -12,7 +12,7 @@ from constants import (
 )
 
 
-from constants import (
+from src.constants import (
   MAX_BAR_LENGTH,
   MAX_N_BARS,
 

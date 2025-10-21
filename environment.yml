@@ -21,3 +21,4 @@ dependencies:
     - miditoolkit==1.0.1
     - mlflow==2.17.2
     - umap-learn==0.5.7
+    - ray[tune]==2.9.3

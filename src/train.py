@@ -1,4 +1,5 @@
 import argparse
+import numbers
 import os
 from glob import glob
 import pytorch_lightning as pl
@@ -12,10 +13,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # Enable better Tensor Core utilization on NVIDIA GPUs
 torch.set_float32_matmul_precision('high')
 
-output_dir = os.getenv('OUTPUT_DIR', './output')
+DEFAULT_OUTPUT_DIR = os.getenv('OUTPUT_DIR', './output')
 
-from model import SymJEPA
-from dataset import MidiDataModule
+from src.model import SymJEPA
+from src.dataset import MidiDataModule
 
 def add_model_specific_args(parent_parser):
     parser = parent_parser.add_argument_group("model")
@@ -69,12 +70,45 @@ def add_model_specific_args(parent_parser):
                        help="Learning rate")
     return parent_parser
 
+
+def build_train_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Train Sym-JEPA with MLflow logging")
+    parser = add_model_specific_args(parser)
+    parser.add_argument("--midi_dir", type=str,
+                       default=os.getenv('MIDI_DIR', './dataset/clean_midi/'),
+                       help="Directory containing MIDI files")
+    parser.add_argument("--max_epochs", type=int,
+                       default=int(os.getenv('MAX_EPOCHS', 100)),
+                       help="Number of training epochs")
+    parser.add_argument("--train_downstream_tasks", action="store_true",
+                       help="Automatically train and log downstream task results after pretraining.")
+    parser.add_argument("--run_name", type=str, default=None, help="Custom run name for logging")
+    parser.add_argument("--output_dir", type=str, default=DEFAULT_OUTPUT_DIR,
+                       help="Root directory for saving checkpoints and downstream outputs")
+    return parser
+
+
+def _extract_scalar_metrics(metric_dict):
+    scalars = {}
+    for key, value in metric_dict.items():
+        if isinstance(value, numbers.Number):
+            scalars[key] = float(value)
+        elif isinstance(value, torch.Tensor):
+            if value.numel() == 1:
+                scalars[key] = float(value.detach().cpu().item())
+        elif hasattr(value, "item"):
+            try:
+                scalars[key] = float(value.item())
+            except Exception:
+                continue
+    return scalars
+
 def run_downstream_task(task, model_path, output_dir, tokenization, max_epochs=10, run_name=None):
     """Run a single downstream task using subprocess."""
     print(f"Starting downstream task: {task}")
     
     cmd = [
-        sys.executable, "fine_tune.py",
+        sys.executable, "-m", "src.fine_tune",
         "--task", task,
         "--output_dir", output_dir,
         "--tokenization", tokenization,
@@ -134,26 +168,11 @@ def run_all_downstream_tasks(model_path, output_dir, tokenization, max_epochs=10
     
     return results
 
-def main():
+def run_training(args: argparse.Namespace) -> dict:
     # Load environment variables from .env file
     load_dotenv()
 
-    parser = argparse.ArgumentParser(description="Train Sym-JEPA with MLflow logging")
-    parser = add_model_specific_args(parser)
-    parser.add_argument("--midi_dir", type=str, 
-                       default=os.getenv('MIDI_DIR', './dataset/clean_midi/'),
-                       help="Directory containing MIDI files")
-    parser.add_argument("--max_epochs", type=int,
-                       default=int(os.getenv('MAX_EPOCHS', 100)),
-                       help="Number of training epochs")
-
-    parser.add_argument("--train_downstream_tasks", action="store_true",
-                       help="Automatically train and log downstream task results after pretraining.")
-
-    parser.add_argument("--run_name", type=str, default=None, help="Custom run name for logging")
-
-    args = parser.parse_args()
-
+    os.makedirs(args.output_dir, exist_ok=True)
     # Initialize logger based on fast_dev_run
     if args.fast_dev_run:
         logger = None
@@ -213,19 +232,26 @@ def main():
     
 
     # Configure the PyTorch Lightning Trainer
+    checkpoint_callback = ModelCheckpoint(
+        monitor='val_loss',
+        mode='min',
+        save_top_k=1,
+        save_last=True,
+        dirpath=os.path.join(args.output_dir, "checkpoints")
+    )
+
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
         logger=logger,
         fast_dev_run=args.fast_dev_run,
         limit_train_batches=args.limit_batches if args.limit_batches else 1.0,
         limit_val_batches=args.limit_batches if args.limit_batches else 1.0,
-        callbacks=[
-            ModelCheckpoint(monitor='val_loss', mode='min', save_top_k=1, save_last=True)
-        ],
+        callbacks=[checkpoint_callback],
         accumulate_grad_batches=GRADIENT_ACCUMULATION_N_BATCHES,
         gradient_clip_val=1.0,
         log_every_n_steps=max(1, 50 // GRADIENT_ACCUMULATION_N_BATCHES),
-        val_check_interval=0.25  # Run validation 10 times per epoch
+        val_check_interval=0.25,  # Run validation 10 times per epoch
+        default_root_dir=args.output_dir
     )
 
     # Log hyperparameters only if not in fast_dev_run mode
@@ -244,20 +270,26 @@ def main():
     # Begin training
     trainer.fit(model, data_module)
 
+    # Collect metrics before optional downstream fine-tuning
+    metrics = _extract_scalar_metrics(trainer.callback_metrics)
+
+    best_model_path = None
+    if checkpoint_callback is not None:
+        best_model_path = getattr(checkpoint_callback, "best_model_path", None) or getattr(checkpoint_callback, "last_model_path", None)
+    downstream_results = None
+
     # Run downstream tasks if requested
     if args.train_downstream_tasks:
         print("\n=== Starting Downstream Task Training ===")
         
         # Get the best checkpoint path
-        best_model_path = None
-        if hasattr(trainer.checkpoint_callback, 'best_model_path') and trainer.checkpoint_callback.best_model_path:
-            best_model_path = trainer.checkpoint_callback.best_model_path
+        if best_model_path:
             print(f"Using best checkpoint: {best_model_path}")
         else:
             print("No best checkpoint found, running downstream tasks without pretrained weights")
         
         # Create output directory for downstream tasks
-        downstream_output_dir = os.path.join(output_dir, 'downstream_tasks')
+        downstream_output_dir = os.path.join(args.output_dir, 'downstream_tasks')
         os.makedirs(downstream_output_dir, exist_ok=True)
         
         # Run all downstream tasks
@@ -284,7 +316,24 @@ def main():
                 value=len(downstream_results)
             )
 
-    
-    
+    skipped_files = len(getattr(data_module, "skipped_files", []))
+
+    return {
+        "best_model_path": best_model_path,
+        "metrics": metrics,
+        "downstream_results": downstream_results,
+        "skipped_files": skipped_files,
+        "train_dataset_size": len(getattr(data_module, "train_ds", [])),
+        "val_dataset_size": len(getattr(data_module, "valid_ds", [])),
+        "test_dataset_size": len(getattr(data_module, "test_ds", [])),
+    }
+
+
+def main():
+    parser = build_train_parser()
+    args = parser.parse_args()
+    run_training(args)
+
+
 if __name__ == "__main__":
     main() 

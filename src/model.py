@@ -2,16 +2,16 @@ import pytorch_lightning as pl
 import torch.optim
 import torch.nn as nn
 import math
-from dataset import MidiDataModule
-from vocab import RemiVocab
-from constants import PAD_TOKEN
+from src.dataset import MidiDataModule
+from src.vocab import RemiVocab
+from src.constants import PAD_TOKEN
 from transformers import BertConfig, BertModel
 from copy import deepcopy
 import torch.nn.functional as F
-from octuple_tokenizer import token_to_value, get_max_vector, OctupleVocab, max_pitch, bar_max, max_inst, ts_list
-from positional_encoding import MusicPositionalEncoding, FundamentalMusicEmbedding
+from src.octuple_tokenizer import token_to_value, get_max_vector, OctupleVocab, max_pitch, bar_max, max_inst, ts_list
+from src.positional_encoding import MusicPositionalEncoding, FundamentalMusicEmbedding
 import pdb
-from masking import transpose_range, instrument_range
+from src.masking import transpose_range, instrument_range
 import mlflow
 import numpy as np
 import matplotlib
@@ -19,7 +19,7 @@ matplotlib.use('Agg')  # Use non-interactive backend for headless environments
 import matplotlib.pyplot as plt
 import tempfile
 import os
-from viz import visualize_umap_clusters, visualize_tsne_clusters
+from src.viz import visualize_umap_clusters, visualize_tsne_clusters
 
 def gather_unmasked_tokens(tensor, mask, pad_value=0):
     """

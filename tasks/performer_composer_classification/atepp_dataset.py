@@ -2,11 +2,7 @@ import os
 import pandas as pd
 import unicodedata
 from torch.utils.data import Dataset
-from dataset import MidiDataset
-
-
-from torch.utils.data import Dataset
-from dataset import MidiDataset
+from src.dataset import MidiDataset
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 import torch

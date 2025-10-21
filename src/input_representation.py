@@ -1,11 +1,11 @@
-from chord_recognition import MIDIChord
+from src.chord_recognition import MIDIChord
 import numpy as np
 import pretty_midi
-from tokenizer_base import TokenizerBase
+from src.tokenizer_base import TokenizerBase
 
-from vocab import RemiVocab
+from src.vocab import RemiVocab
 
-from constants import (
+from src.constants import (
   EOS_TOKEN,
   # vocab keys
   TIME_SIGNATURE_KEY,

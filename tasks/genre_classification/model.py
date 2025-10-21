@@ -4,8 +4,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import BertConfig, BertModel
 import pdb
-from vocab import RemiVocab
-from model import SymJEPA, SymJEPAPooler
+from src.vocab import RemiVocab
+from src.model import SymJEPA, SymJEPAPooler
 import wandb
 from sklearn.metrics import f1_score
 

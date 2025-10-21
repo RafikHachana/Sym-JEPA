@@ -1,6 +1,6 @@
 import random
 from typing import Dict, Tuple
-from octuple_tokenizer import OctupleVocab
+from src.octuple_tokenizer import OctupleVocab
 import torch
 
 
@@ -215,4 +215,3 @@ if __name__ == "__main__":
     
     
     
-

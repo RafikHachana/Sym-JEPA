@@ -2,9 +2,9 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 from transformers import BertConfig, BertModel
-from model import SymJEPA
-from octuple_tokenizer import OctupleTokenizer, OctupleVocab, get_max_vector, get_separate_vocabs
-from masking import _get_instrument_id
+from src.model import SymJEPA
+from src.octuple_tokenizer import OctupleTokenizer, OctupleVocab, get_max_vector, get_separate_vocabs
+from src.masking import _get_instrument_id
 from tqdm import tqdm
 
 

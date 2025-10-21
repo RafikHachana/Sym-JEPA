@@ -3,7 +3,7 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from model import SymJEPA, SymJEPAPooler
+from src.model import SymJEPA, SymJEPAPooler
 from sklearn.metrics import average_precision_score
 import numpy as np
 

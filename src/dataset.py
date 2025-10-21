@@ -7,22 +7,21 @@ import os
 from functools import lru_cache
 import pickle
 import argparse
-from octuple_tokenizer import OctupleTokenizer
+from src.octuple_tokenizer import OctupleTokenizer
 from glob import glob
 import logging
 import numpy as np
 import json
 import traceback
 import hashlib
-from input_representation import RemiTokenizer
-from octuple_tokenizer import OctupleTokenizer
-from vocab import RemiVocab
-from octuple_tokenizer import breakout_octuple
-from constants import (
+from src.input_representation import RemiTokenizer
+from src.vocab import RemiVocab
+from src.octuple_tokenizer import breakout_octuple
+from src.constants import (
   BAR_KEY, POSITION_KEY
 )
 from tqdm import tqdm
-from masking import RandomMaskGenerator
+from src.masking import RandomMaskGenerator
 
 
 CACHE_PATH = os.getenv('CACHE_PATH', os.getenv('SCRATCH', os.getenv('TMPDIR', './temp')))
@@ -76,10 +75,8 @@ class MidiDataModule(pl.LightningDataModule):
     self.num_epochs = num_epochs
     self.masking_probabilities = masking_probabilities
     if tokenization == 'remi':
-        from input_representation import RemiTokenizer
         self.tokenizer_class = RemiTokenizer
     elif tokenization == 'octuple':
-        from octuple_tokenizer import OctupleTokenizer
         self.tokenizer_class = OctupleTokenizer
     else:
         raise ValueError(f"Unknown tokenization method: {tokenization}")

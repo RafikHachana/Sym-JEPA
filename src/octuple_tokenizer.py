@@ -1,5 +1,5 @@
-from tokenizer_base import TokenizerBase
-from constants import *
+from src.tokenizer_base import TokenizerBase
+from src.constants import *
 import numpy as np
 import pretty_midi
 import traceback
@@ -21,7 +21,7 @@ import math
 import signal
 import hashlib
 from multiprocessing import Pool, Lock, Manager
-from vocab import Vocab
+from src.vocab import Vocab
 from collections import Counter
 
 pos_resolution = 16  # per beat (quarter note)

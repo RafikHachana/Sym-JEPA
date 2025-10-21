@@ -1,11 +1,11 @@
 from .model import MusicDecoder
-from dataset import MidiDataset
+from src.dataset import MidiDataset
 from glob import glob
 import os
 
 import torch
 import miditoolkit
-from octuple_tokenizer import encoding_to_MIDI, OctupleVocab, token_to_value, MIDI_to_encoding
+from src.octuple_tokenizer import encoding_to_MIDI, OctupleVocab, token_to_value, MIDI_to_encoding
 
 def test():
     model = MusicDecoder()
