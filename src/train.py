@@ -18,6 +18,7 @@ torch.set_float32_matmul_precision('high')
 
 from src.model import SymJEPA, SymJEPAConfig
 from src.dataset import MidiDataModule
+from src.pretraining_callbacks import EmbeddingProjectionCallback
 
 
 def _default_train_config() -> Dict[str, Any]:
@@ -234,13 +235,19 @@ def run_training(config: Dict[str, Any]) -> Dict[str, Any]:
         dirpath=os.path.join(args.output_dir, "checkpoints")
     )
 
+    visualization_callback = EmbeddingProjectionCallback(
+        stage="validate",
+        artifact_path="visualizations",
+        max_sequences=10,
+    )
+
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
         logger=logger,
         fast_dev_run=args.fast_dev_run,
         limit_train_batches=args.limit_batches if args.limit_batches else 1.0,
         limit_val_batches=args.limit_batches if args.limit_batches else 1.0,
-        callbacks=[checkpoint_callback],
+        callbacks=[checkpoint_callback, visualization_callback],
         accumulate_grad_batches=GRADIENT_ACCUMULATION_N_BATCHES,
         gradient_clip_val=1.0,
         log_every_n_steps=max(1, 50 // GRADIENT_ACCUMULATION_N_BATCHES),

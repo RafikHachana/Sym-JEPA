@@ -12,14 +12,6 @@ from src.octuple_tokenizer import token_to_value, get_max_vector, OctupleVocab, 
 from src.positional_encoding import MusicPositionalEncoding, FundamentalMusicEmbedding
 import pdb
 from src.masking import transpose_range, instrument_range
-import mlflow
-import numpy as np
-import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend for headless environments
-import matplotlib.pyplot as plt
-import tempfile
-import os
-from src.viz import visualize_umap_clusters, visualize_tsne_clusters
 from dataclasses import dataclass
 
 def gather_unmasked_tokens(tensor, mask, pad_value=0):
@@ -324,11 +316,6 @@ class SymJEPA(pl.LightningModule):
 
     self.latent_var_in = nn.Embedding(transpose_range + instrument_range + 1, self.d_model)
     
-    # Initialize validation embedding storage
-    self.validation_embeddings = []
-    self.validation_sequence_ids = []
-    self.max_sequences_to_visualize = 10
-    
     self.save_hyperparameters()
   
   def _fuse_decoded_tokens(self, decoded_tokens, context_emb):
@@ -632,87 +619,10 @@ class SymJEPA(pl.LightningModule):
   def validation_step(self, batch, batch_idx):
     loss = self.get_loss(batch, fold='val')
     self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-    
-    # Collect embeddings for visualization from first 10 sequences
-    self._collect_validation_embeddings(batch, batch_idx)
-    
     return loss
-
-  def on_validation_epoch_end(self):
-    """Called at the end of each validation epoch."""
-    # Create and log visualizations to MLflow
-    self._visualize_and_log_embeddings()
   
   def test_step(self, batch, batch_idx):
     return self.get_loss(batch, fold='test')
-        
-  def _collect_validation_embeddings(self, batch, batch_idx):
-    """Collect embeddings from the first 10 sequences for visualization."""
-    if batch_idx >= self.max_sequences_to_visualize:
-      return
-      
-    # Get context encoder hidden states
-    context_hidden = self.encode_context(batch['context_ids'], batch.get('context_mask'))
-    
-    # Convert to numpy and store embeddings for each sequence in the batch
-    context_hidden_np = context_hidden.detach().cpu().numpy()
-    
-    for seq_idx in range(min(context_hidden_np.shape[0], self.max_sequences_to_visualize - len(self.validation_embeddings))):
-      # Get embeddings for this sequence (all tokens)
-      seq_embeddings = context_hidden_np[seq_idx]  # [seq_len, d_model]
-      
-      # Store embeddings and sequence ID for coloring
-      self.validation_embeddings.append(seq_embeddings)
-      # Create sequence IDs for coloring (same ID for all tokens in a sequence)
-      seq_id = len(self.validation_embeddings) - 1
-      self.validation_sequence_ids.extend([seq_id] * seq_embeddings.shape[0])
-      
-      if len(self.validation_embeddings) >= self.max_sequences_to_visualize:
-        break
-
-  def _visualize_and_log_embeddings(self):
-    """Create and log UMAP and t-SNE visualizations to MLflow using viz.py functions."""
-    if len(self.validation_embeddings) == 0:
-      return
-      
-    # Concatenate all embeddings
-    all_embeddings = np.vstack(self.validation_embeddings)  # [total_tokens, d_model]
-    colors = np.array(self.validation_sequence_ids)  # [total_tokens]
-    
-    # Create temporary directory for saving plots
-    with tempfile.TemporaryDirectory() as temp_dir:
-      # UMAP visualization using viz.py function
-      try:
-        # Capture the plot from viz function
-        plt.figure(figsize=(12, 8))
-        visualize_umap_clusters(all_embeddings, colors, mode='2d')
-        plt.suptitle(f'UMAP Projection - Epoch {self.current_epoch}', y=0.98)
-        
-        umap_path = os.path.join(temp_dir, f'umap_epoch_{self.current_epoch}.png')
-        plt.savefig(umap_path, dpi=150, bbox_inches='tight')
-        plt.close()
-        mlflow.log_artifact(umap_path, artifact_path="visualizations")
-        print(f"Logged UMAP visualization for epoch {self.current_epoch}")
-      except Exception as e:
-        print(f"Failed to create UMAP visualization: {e}")
-      
-      # t-SNE visualization using viz.py function
-      try:
-        plt.figure(figsize=(12, 8))
-        visualize_tsne_clusters(all_embeddings, colors, mode='2d')
-        plt.suptitle(f't-SNE Projection - Epoch {self.current_epoch}', y=0.98)
-        
-        tsne_path = os.path.join(temp_dir, f'tsne_epoch_{self.current_epoch}.png')
-        plt.savefig(tsne_path, dpi=150, bbox_inches='tight')
-        plt.close()
-        mlflow.log_artifact(tsne_path, artifact_path="visualizations")
-        print(f"Logged t-SNE visualization for epoch {self.current_epoch}")
-      except Exception as e:
-        print(f"Failed to create t-SNE visualization: {e}")
-    
-    # Clear embeddings for next epoch
-    self.validation_embeddings.clear()
-    self.validation_sequence_ids.clear()
 
   def configure_optimizers(self):
     # set LR to 1, scale with LambdaLR scheduler
