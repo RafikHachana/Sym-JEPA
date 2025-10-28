@@ -1,7 +1,7 @@
 #! /bin/bash
 
 apt update
-apt install git tmux unzip
+apt install git tmux unzip libtiff5
 
 # Change username and email if needed
 git config --global user.name "RafikHachana"
