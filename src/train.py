@@ -16,7 +16,7 @@ from pytorch_lightning.loggers import MLFlowLogger
 # Enable better Tensor Core utilization on NVIDIA GPUs
 torch.set_float32_matmul_precision('high')
 
-from src.model import SymJEPA
+from src.model import SymJEPA, SymJEPAConfig
 from src.dataset import MidiDataModule
 
 
@@ -204,9 +204,7 @@ def run_training(config: Dict[str, Any]) -> Dict[str, Any]:
 
     GRADIENT_ACCUMULATION_N_BATCHES= 25
 
-
-    # Create the model instance
-    model = SymJEPA(
+    model_config = SymJEPAConfig(
         num_epochs=args.max_epochs,
         use_vicreg=args.use_vicreg,
         vicreg_sim_weight=args.vicreg_sim_weight,
@@ -218,6 +216,11 @@ def run_training(config: Dict[str, Any]) -> Dict[str, Any]:
         tokenization=args.tokenization,
         pass_target_mask_to_predictor=args.pass_target_mask_to_predictor,
         lr=args.lr
+    )
+
+    # Create the model instance
+    model = SymJEPA(
+        **model_config.__dict__
     )
 
     
@@ -271,6 +274,7 @@ def run_training(config: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "best_model_path": best_model_path,
+        "model_config": model_config,
         "metrics": metrics,
         "skipped_files": skipped_files,
         "train_dataset_size": len(getattr(data_module, "train_ds", [])),

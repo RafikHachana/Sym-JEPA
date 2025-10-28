@@ -3,7 +3,7 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from src.model import SymJEPA, SymJEPAPooler
+from src.model import SymJEPA, SymJEPAPooler, SymJEPAConfig
 from sklearn.metrics import average_precision_score
 import numpy as np
 
@@ -13,7 +13,7 @@ class EmotionClassifier(pl.LightningModule):
                 max_len=2048,
                 lr=1e-3,
                 d_model=512,
-                tokenization='octuple',
+                symjepa_config=None,
                 num_classes=2,
                 class_key="emotion_quadrant",
                 **kwargs):
@@ -22,7 +22,7 @@ class EmotionClassifier(pl.LightningModule):
         self.max_len = max_len
         
         # Initialize only the encoder
-        self.jepa = SymJEPA(tokenization=tokenization, pass_target_mask_to_predictor=True)
+        self.jepa = SymJEPA(**symjepa_config.__dict__)
         self.jepa.eval()
         self.jepa_pooler = SymJEPAPooler(d_model=d_model)
 

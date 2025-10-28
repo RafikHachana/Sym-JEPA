@@ -16,6 +16,7 @@ class MusicDecoder(pl.LightningModule):
                     encoder_layers=8,
                     num_attention_heads=8,
                     intermediate_size=2048,
+                    symjepa_config=None,
                     **kwargs):
         super().__init__()
 
@@ -23,7 +24,7 @@ class MusicDecoder(pl.LightningModule):
         self.max_len = max_len
         
         # Initialize only the encoder
-        self.jepa = SymJEPA(tokenization='octuple', pass_target_mask_to_predictor=True)
+        self.jepa = SymJEPA(**symjepa_config.__dict__)
         
         self.jepa.eval()
 

@@ -172,7 +172,7 @@ def run_fine_tuning(config: Dict[str, Any]) -> Dict[str, Any]:
             d_model=512,
             encoder_layers=8,
             num_attention_heads=8,
-            tokenization=args.tokenization,
+            symjepa_config=config['model_config'],
             class_weights=torch.tensor([1/(x+1e-7) for x in data_module.train_ds.genre_counts]) if args.task == 'genre' else torch.tensor([1/(x+1e-7) for x in data_module.train_ds.style_counts]),
             task=args.task
         )

@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 import tempfile
 import os
 from src.viz import visualize_umap_clusters, visualize_tsne_clusters
+from dataclasses import dataclass
 
 def gather_unmasked_tokens(tensor, mask, pad_value=0):
     """
@@ -121,6 +122,37 @@ class Utils:
         continuous_tokens = torch.cat([bar_binary_representation, octave, tempo, duration, local_onset, velocity, pitch_class_ohe, drum_pitch_ohe, instrument_ohe, time_signature_ohe], dim=-1)
         return continuous_tokens
 
+
+@dataclass
+class SymJEPAConfig:
+  d_model: int = 512
+  context_size: int = 2048
+  tokenization: str = 'remi'
+  lr: float = 1e-4
+  lr_schedule: str = 'sqrt_decay'
+  warmup_steps: int = 2000
+  max_steps: int = None
+  encoder_layers: int = 16
+  predictor_layers: int = 2
+  intermediate_size: int = 2048
+  num_attention_heads: int = 8
+  description_options: dict = None
+  ema: tuple = (0.996, 0.999)
+  num_epochs: int = 100
+  momentum_start: float = 0.996
+  momentum_end: float = 1.0
+  use_vicreg: bool = False
+  vicreg_sim_weight: float = 25.0
+  vicreg_var_weight: float = 25.0
+  vicreg_cov_weight: float = 1.0
+  vicreg_loss_ratio: float = 0.3
+  info_nce_loss_weight: float = 0.00
+  pass_target_mask_to_predictor: bool = False
+  fuse_decoded_tokens: bool = True
+  add_onset_positional_encoding: bool = True
+  fuse_fme: bool = True
+  use_cosine_loss: bool = True
+  use_custom_continuous_tokens: bool = False
 class SymJEPA(pl.LightningModule):
   def __init__(self,
                d_model=512,
