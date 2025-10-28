@@ -1,6 +1,5 @@
 import pretty_midi
 from collections import Counter
-import torchtext
 from torch import Tensor
 
 from src.constants import (
@@ -86,12 +85,44 @@ class Tokens:
       position_tokens
     )
 
+from collections import Counter
+
+class _Vocab:
+    def __init__(self, counter, specials=("<unk>",), min_freq=1):
+        # Sort tokens by frequency (descending) and then alphabetically
+        sorted_tokens = sorted(
+            [tok for tok, freq in counter.items() if freq >= min_freq],
+            key=lambda x: (-counter[x], x)
+        )
+
+        # Prepend special tokens
+        self.itos = list(dict.fromkeys(list(specials) + sorted_tokens))
+        self.stoi = {tok: i for i, tok in enumerate(self.itos)}
+
+        # Define default index (usually unk)
+        self.default_index = self.stoi.get("<unk>", None)
+
+    def set_default_index(self, idx):
+        self.default_index = idx
+
+    def __len__(self):
+        return len(self.itos)
+
+    def lookup_token(self, idx):
+        return self.itos[idx]
+
+    def lookup_indices(self, tokens):
+        return [self.stoi.get(t, self.default_index) for t in tokens]
+
+    def lookup_tokens(self, indices):
+        return [self.lookup_token(i) for i in indices]
+
 class Vocab:
   def __init__(self, counter, specials=[PAD_TOKEN, UNK_TOKEN, BOS_TOKEN, EOS_TOKEN, MASK_TOKEN], unk_token=UNK_TOKEN):
     self.specials = specials
     
     # Create vocab with special tokens first
-    self.vocab = torchtext.vocab.vocab(
+    self.vocab = _Vocab(
         counter, 
         special_first=True,
         specials=self.specials
