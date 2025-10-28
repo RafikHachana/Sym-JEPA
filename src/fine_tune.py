@@ -159,7 +159,8 @@ def run_fine_tuning(config: Dict[str, Any]) -> Dict[str, Any]:
         tokenization=args.tokenization,
         masking_probabilities={
             "none": 1.0,
-        }
+        },
+        genre_map='/root/Sym-JEPA/metadata/midi_genre_map.json'
     )
 
     data_module.setup()

@@ -2,7 +2,7 @@ dataset:
   limit_data: 128
 
 model:
-  tokenization: remi
+  tokenization: octuple
 
 training:
   max_epochs: 3

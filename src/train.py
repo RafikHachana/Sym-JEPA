@@ -170,7 +170,7 @@ def run_training(config: Dict[str, Any]) -> Dict[str, Any]:
     else:
         logger = MLFlowLogger(
             experiment_name=os.getenv('MLFLOW_EXPERIMENT_NAME', 'symjepa'),
-            tracking_uri=os.getenv('MLFLOW_TRACKING_URI', './mlruns'),
+            tracking_uri=os.getenv('MLFLOW_TRACKING_URI', '/root/Sym-JEPA/mlruns'),
             run_name=args.run_name
         )
 
