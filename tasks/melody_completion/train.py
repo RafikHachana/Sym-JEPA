@@ -29,7 +29,7 @@ def _extract_scalar_metrics(metric_dict):
 
 
 def train(args):
-    midi_files = glob(os.path.join("dataset/clean_midi", "**/*.mid"), recursive=True)
+    midi_files = glob(os.path.join("/root/Sym-JEPA/dataset/clean_midi", "**/*.mid"), recursive=True)
     if args.limit_data:
         midi_files = midi_files[:args.limit_data]
     print("Len of midi files: ", len(midi_files))
@@ -45,7 +45,7 @@ def train(args):
         lr=1e-5,
         d_model=512,
         encoder_layers=8,
-        tokenization=args.tokenization
+        symjepa_config=args.model_config
     )
 
     if args.model_path:
@@ -56,7 +56,7 @@ def train(args):
     else:
         logger = MLFlowLogger(
             experiment_name=f"symjepa-{args.task}-classification",
-            tracking_uri="./mlruns",
+            tracking_uri="/root/Sym-JEPA/mlruns",
             run_name=args.run_name
         )
 

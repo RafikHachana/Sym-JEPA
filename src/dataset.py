@@ -412,7 +412,7 @@ class MidiDataset(torch.utils.data.Dataset):
                print_errors=False,
                tokenizer_class=OctupleTokenizer,
                use_mask_padding=False,
-               genre_map_path='metadata/midi_genre_map.json',
+               genre_map_path='/root/Sym-JEPA/metadata/midi_genre_map.json',
                skip_unknown_genres=False,
                skip_unknown_styles=False,
                sample_count_per_sequence=1):

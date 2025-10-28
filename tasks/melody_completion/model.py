@@ -16,7 +16,7 @@ class MelodyCompletionModel(pl.LightningModule):
                     encoder_layers=8,
                     num_attention_heads=8,
                     intermediate_size=2048,
-                    tokenization='remi',
+                    symjepa_config=None,
                     class_weights=None,
                  **kwargs):
         super().__init__()
@@ -24,7 +24,7 @@ class MelodyCompletionModel(pl.LightningModule):
         self.max_len = max_len
         
         # Initialize only the encoder
-        self.jepa = SymJEPA(tokenization=tokenization, pass_target_mask_to_predictor=True)
+        self.jepa = SymJEPA(**symjepa_config.__dict__)
         self.jepa.eval()
         self.jepa_pooler = SymJEPAPooler(d_model=d_model)
 

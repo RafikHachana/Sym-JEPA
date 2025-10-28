@@ -57,7 +57,7 @@ def train(args):
     else:
         logger = MLFlowLogger(
             experiment_name=f"symjepa-{args.task}-cls",
-            tracking_uri="./mlruns",
+            tracking_uri="/root/Sym-JEPA/mlruns",
             run_name=args.run_name
         )
 
