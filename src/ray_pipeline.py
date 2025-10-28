@@ -9,7 +9,7 @@ from typing import Any, Dict, Iterable, Optional
 import numpy as np
 import pytorch_lightning as pl
 import ray
-from ray import air, tune
+from ray import air, tune, train
 from ray.tune.schedulers import ASHAScheduler
 try:  # Optional dependency
     from ray.tune.search.optuna import OptunaSearch  # type: ignore
@@ -191,13 +191,14 @@ def train_and_finetune(config: Dict[str, Any], pipeline_context: Dict[str, Any])
         task_misc.setdefault("task", task)
         if best_model_path and not task_misc.get("model_path"):
             task_misc["model_path"] = best_model_path
+        task_misc['model_config'] = pretrain_result.get("model_config")
 
         os.environ["FINE_TUNE_OUTPUT_DIR"] = str(task_dir)
         finetune_result = run_fine_tuning(task_config) or {}
         metrics = finetune_result.get("metrics", {})
         report_metrics.update(_prefix_metrics(f"finetune_{task}", metrics))
 
-    tune.report(**report_metrics)
+    train.report(report_metrics)
 
 
 def _create_scheduler(cfg: Dict[str, Any]) -> Optional[Any]:

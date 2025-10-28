@@ -1,6 +1,6 @@
 experiment:
   name: symjepa-sample
-  metric: train_val_loss
+  metric: pretrain_val_loss
   mode: min
   num_samples: 1
 

@@ -142,7 +142,7 @@ def run_fine_tuning(config: Dict[str, Any]) -> Dict[str, Any]:
         result = train_emotion(args)
         return result or {"task": args.task}
 
-    midi_files = glob(os.path.join("dataset/lmd_full", "**/*.mid"), recursive=True)
+    midi_files = glob(os.path.join("/root/Sym-JEPA/dataset/clean_midi", "**/*.mid"), recursive=True)
     if args.limit_data:
         midi_files = midi_files[:args.limit_data]
 
@@ -172,7 +172,7 @@ def run_fine_tuning(config: Dict[str, Any]) -> Dict[str, Any]:
             d_model=512,
             encoder_layers=8,
             num_attention_heads=8,
-            symjepa_config=config['model_config'],
+            symjepa_config=args.model_config,
             class_weights=torch.tensor([1/(x+1e-7) for x in data_module.train_ds.genre_counts]) if args.task == 'genre' else torch.tensor([1/(x+1e-7) for x in data_module.train_ds.style_counts]),
             task=args.task
         )
@@ -192,7 +192,7 @@ def run_fine_tuning(config: Dict[str, Any]) -> Dict[str, Any]:
         experiment_name = f"symjepa-{args.task}-classification" if args.task != "decode" else "symjepa-decode"
         logger = MLFlowLogger(
             experiment_name=experiment_name,
-            tracking_uri="./mlruns",
+            tracking_uri="/root/Sym-JEPA/mlruns",
             run_name=args.run_name
         )
 
