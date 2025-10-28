@@ -1,11 +1,11 @@
 dataset:
-  midi_dir: dataset/clean_midi
+  midi_dir: /root/Sym-JEPA/dataset/clean_midi
   limit: null
   max_len: 2048
 
 model:
-  tokenization: remi
-  use_mask_padding: false
+  tokenization: octuple
+  use_mask_padding: true
   masking_mode: contiguous
   masking_probability: 0.25
   segment_size_ratio: 0.1

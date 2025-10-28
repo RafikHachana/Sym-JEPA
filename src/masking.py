@@ -81,6 +81,7 @@ def instrument_masking(input_ids, octuple_breakout):
 
 
 def transpose_masking(input_ids, octuple_breakout):
+    return torch.zeros_like(input_ids).bool(), torch.zeros_like(input_ids).bool(), input_ids, 0
     semitones = torch.randint(-5, 7, (1,))
     
     octuple_breakout['pitch'] = [None if x is None else x + semitones if x <= 127 else None for x in octuple_breakout['pitch']]
@@ -91,12 +92,13 @@ def transpose_masking(input_ids, octuple_breakout):
         if x is None or x > 127:
             continue
 
-        encoded = octuple_vocab.encode(f"<3-{x}>")
+        encoded = octuple_vocab.encode(f"<3-{x.item()}>")
         input_ids[i*8+3] = encoded[0]
     mask = torch.zeros_like(input_ids).bool()
     return mask, mask, input_ids, _get_transpose_id(semitones.item())
 
 def rhythmic_noise_masking(input_ids, octuple_breakout):
+    return torch.zeros_like(input_ids).bool(), torch.zeros_like(input_ids).bool(), input_ids, 0
 
     octuple_breakout['duration'] = [x + torch.randint(-3, 2, (1,)) if x is not None else None for x in octuple_breakout['duration']]
 
@@ -110,7 +112,7 @@ def rhythmic_noise_masking(input_ids, octuple_breakout):
         if x > 7:
             x = 7
 
-        encoded = octuple_vocab.encode(f"<4-{x}>")
+        encoded = octuple_vocab.encode(f"<4-{x.item()}>")
         input_ids[i*8+4] = encoded[0]
     mask = torch.zeros_like(input_ids).bool()
     return mask, mask, input_ids, 0

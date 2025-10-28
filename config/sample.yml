@@ -1,6 +1,6 @@
 experiment:
   name: symjepa-sample
-  metric: pretrain_val_loss
+  metric: train_val_loss
   mode: min
   num_samples: 2
 
@@ -10,7 +10,7 @@ ray:
 
 resources:
   cpu: 4
-  gpu: 0
+  gpu: 1
 
 scheduler:
   type: ASHA
@@ -40,9 +40,9 @@ param_space:
   pretrain:
     training:
       lr: !loguniform [0.0005, 0.01]
-      max_epochs: !choice [3, 4]
+      max_epochs: 3
     dataset:
-      limit: !choice [null, 100]
+      limit: !choice [100, 200]
   finetune:
     shared:
       training:

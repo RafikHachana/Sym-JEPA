@@ -227,8 +227,8 @@ def F(file_name):
     try_times = 10
     midi_file = None
     try:
-        with timeout(seconds=600):
-            midi_obj = miditoolkit.midi.parser.MidiFile(file_name)
+        # with timeout(seconds=600):
+        midi_obj = miditoolkit.midi.parser.MidiFile(file_name)
         # check abnormal values in parse result
         assert all(0 <= j.start < 2 ** 31 and 0 <= j.end < 2 **
                    31 for i in midi_obj.instruments for j in i.notes), 'bad note time'
@@ -237,7 +237,7 @@ def F(file_name):
         assert 0 < midi_obj.ticks_per_beat < 2 ** 31, 'bad ticks per beat'
     except BaseException as e:
         # traceback.print_exc()
-        # print('ERROR(PARSE): ' + file_name + ' ' + str(e) + '\n', end='')
+        print('ERROR(PARSE): ' + file_name + ' ' + str(e) + '\n', end='')
         return None
     midi_notes_count = sum(len(inst.notes) for inst in midi_obj.instruments)
     if midi_notes_count == 0:

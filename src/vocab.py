@@ -88,7 +88,7 @@ class Tokens:
 from collections import Counter
 
 class _Vocab:
-    def __init__(self, counter, specials=("<unk>",), min_freq=1):
+    def __init__(self, counter, specials=("<unk>",), min_freq=1, special_first=True):
         # Sort tokens by frequency (descending) and then alphabetically
         sorted_tokens = sorted(
             [tok for tok, freq in counter.items() if freq >= min_freq],
@@ -110,6 +110,9 @@ class _Vocab:
 
     def lookup_token(self, idx):
         return self.itos[idx]
+
+    def __getitem__(self, item):
+        return self.stoi[item]
 
     def lookup_indices(self, tokens):
         return [self.stoi.get(t, self.default_index) for t in tokens]
@@ -146,6 +149,8 @@ class Vocab:
     return len(self.vocab)
 
   def encode(self, seq):
+    if isinstance(seq, str):
+      return self.vocab[seq]
     return [self.vocab[token] for token in seq]  # Manual encoding since vocab(seq) might not be supported
 
   def decode(self, seq):

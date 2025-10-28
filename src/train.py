@@ -196,7 +196,8 @@ def run_training(config: Dict[str, Any]) -> Dict[str, Any]:
         masking_probability=args.masking_probability,
         segment_size_ratio=args.segment_size_ratio,
         num_segments=args.num_segments,
-        tokenization=args.tokenization
+        tokenization=args.tokenization,
+        genre_map='/root/Sym-JEPA/metadata/midi_genre_map.json'
     )
 
     data_module.setup()

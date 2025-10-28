@@ -24,7 +24,7 @@ from tqdm import tqdm
 from src.masking import RandomMaskGenerator
 
 
-CACHE_PATH = os.getenv('CACHE_PATH', os.getenv('SCRATCH', os.getenv('TMPDIR', './temp')))
+CACHE_PATH = os.getenv('CACHE_PATH', os.getenv('SCRATCH', os.getenv('TMPDIR', '/root/Sym-JEPA/temp')))
 
 def get_md5(file_path):
   return hashlib.md5(open(file_path, 'rb').read()).hexdigest()
@@ -103,6 +103,7 @@ class MidiDataModule(pl.LightningDataModule):
       tokenizer_class=self.tokenizer_class,
       skip_unknown_genres=self.skip_unknown_genres,
       skip_unknown_styles=self.skip_unknown_styles,
+      genre_map_path=self.genre_map,
       **self.kwargs
     )
     self.valid_ds = MidiDataset(valid_files, self.max_len, 
@@ -110,6 +111,7 @@ class MidiDataModule(pl.LightningDataModule):
       tokenizer_class=self.tokenizer_class,
       skip_unknown_genres=self.skip_unknown_genres,
       skip_unknown_styles=self.skip_unknown_styles,
+      genre_map_path=self.genre_map,
       **self.kwargs
     )
     self.test_ds = MidiDataset(test_files, self.max_len, 
@@ -117,6 +119,7 @@ class MidiDataModule(pl.LightningDataModule):
       tokenizer_class=self.tokenizer_class,
       skip_unknown_genres=self.skip_unknown_genres,
       skip_unknown_styles=self.skip_unknown_styles,
+      genre_map_path=self.genre_map,
       **self.kwargs
     )
 
@@ -657,6 +660,7 @@ class MidiDataset(torch.utils.data.Dataset):
             tokenizer = self.tokenizer_class(file, strict=True)
             events = tokenizer.get_events()
         except Exception as err:
+            print(err)
             # traceback.print_exc()
             raise ValueError(f'Unable to load file {file}') from err
 
