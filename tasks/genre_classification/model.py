@@ -6,7 +6,6 @@ from transformers import BertConfig, BertModel
 import pdb
 from src.vocab import RemiVocab
 from src.model import SymJEPA, SymJEPAPooler
-import wandb
 from sklearn.metrics import f1_score
 
 
