@@ -33,7 +33,22 @@ finetune:
       config_path: config/finetune_genre_sample.yml
       overrides:
         training:
-          max_epochs: 2
+          max_epochs: 1
+    style:
+      config_path: config/finetune_genre_sample.yml
+      overrides:
+        training:
+          max_epochs: 1
+    melody_prediction:
+      config_path: config/finetune_genre_sample.yml
+      overrides:
+        training:
+          max_epochs: 1
+    accompaniment_suggestion:
+      config_path: config/finetune_genre_sample.yml
+      overrides:
+        training:
+          max_epochs: 1
 
 param_space:
   seed: !choice [42, 1337]
