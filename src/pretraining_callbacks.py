@@ -432,6 +432,13 @@ class TokenAttributeProbeCallback(pl.Callback):
             "num_classes": max_inst + 1,
             "valid_fn": lambda arr: arr >= 0,
         },
+        "pitch_class": {
+            "getter": Utils.get_pitch_class_sequence,
+            "type": "classification",
+            "metric": "pitch_class_probe_acc",
+            "num_classes": 12,
+            "valid_fn": lambda arr: arr >= 0,
+        },
     }
 
     def __init__(
