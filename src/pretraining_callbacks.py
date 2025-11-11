@@ -13,6 +13,7 @@ import pytorch_lightning as pl
 import torch
 
 from src.model import Utils
+from src.octuple_tokenizer import max_inst
 from src.viz import visualize_tsne_clusters, visualize_umap_clusters
 
 
@@ -411,10 +412,26 @@ __all__ = [
 class TokenAttributeProbeCallback(pl.Callback):
     """Fit linear probes that recover token-level attributes from encoder states."""
 
-    _ATTRIBUTE_GETTERS: Dict[str, Callable[[torch.Tensor], torch.Tensor]] = {
-        "pitch": Utils.get_pitch_sequence,
-        "duration": Utils.get_duration_sequence,
-        "instrument": Utils.get_instrument_sequence,
+    _ATTRIBUTE_CONFIG: Dict[str, Dict[str, Any]] = {
+        "pitch": {
+            "getter": Utils.get_pitch_sequence,
+            "type": "regression",
+            "metric": "pitch_probe_mse",
+            "valid_fn": lambda arr: arr >= 0,
+        },
+        "duration": {
+            "getter": Utils.get_duration_sequence,
+            "type": "regression",
+            "metric": "duration_probe_mse",
+            "valid_fn": None,
+        },
+        "instrument": {
+            "getter": Utils.get_instrument_sequence,
+            "type": "classification",
+            "metric": "instrument_probe_acc",
+            "num_classes": max_inst + 1,
+            "valid_fn": lambda arr: arr >= 0,
+        },
     }
 
     def __init__(
@@ -428,8 +445,10 @@ class TokenAttributeProbeCallback(pl.Callback):
         dataloader_idx: int = 0,
         min_tokens: int = 256,
     ) -> None:
-        if attribute not in self._ATTRIBUTE_GETTERS:
-            raise ValueError(f"Unsupported attribute '{attribute}'. Expected one of {list(self._ATTRIBUTE_GETTERS)}.")
+        if attribute not in self._ATTRIBUTE_CONFIG:
+            raise ValueError(
+                f"Unsupported attribute '{attribute}'. Expected one of {list(self._ATTRIBUTE_CONFIG)}."
+            )
         super().__init__()
 
         valid_stages = {"train", "validate", "test"}
@@ -440,7 +459,9 @@ class TokenAttributeProbeCallback(pl.Callback):
         self.stage = stage
         self.max_tokens = max_tokens
         self.ridge_lambda = ridge_lambda
-        self.metric_prefix = metric_prefix or f"{attribute}_probe_mse"
+        attr_cfg = self._ATTRIBUTE_CONFIG[attribute]
+        default_metric = attr_cfg["metric"]
+        self.metric_prefix = metric_prefix or default_metric
         self.dataloader_idx = dataloader_idx
         self.min_tokens = min_tokens
 
@@ -499,6 +520,7 @@ class TokenAttributeProbeCallback(pl.Callback):
         if not isinstance(batch, dict):
             return
 
+        attr_cfg = self._ATTRIBUTE_CONFIG[self.attribute]
         context_ids = batch.get("context_ids")
         if context_ids is None:
             return
@@ -513,21 +535,35 @@ class TokenAttributeProbeCallback(pl.Callback):
         with torch.no_grad():
             context_hidden = pl_module.encode_context(context_ids, context_mask)
             decoded_tokens = Utils.decode_tokens(context_ids, pl_module.vocab).to(context_hidden.device)
-            attribute_tensor = self._ATTRIBUTE_GETTERS[self.attribute](decoded_tokens).float()
+            attribute_tensor = attr_cfg["getter"](decoded_tokens).float()
 
         features_np = context_hidden.detach().cpu().numpy()
         targets_np = attribute_tensor.detach().cpu().numpy()
 
+        valid_fn = attr_cfg.get("valid_fn")
+
         for seq_feat, seq_target in zip(features_np, targets_np):
             if self._num_tokens >= self.max_tokens:
                 break
+            seq_target_flat = seq_target.reshape(-1)
+            mask = np.ones_like(seq_target_flat, dtype=bool)
+            if valid_fn is not None:
+                mask &= valid_fn(seq_target_flat)
+
+            if not mask.any():
+                break
+            seq_feat = seq_feat[mask]
+            seq_target_flat = seq_target_flat[mask]
 
             tokens_to_take = min(seq_feat.shape[0], self.max_tokens - self._num_tokens)
             if tokens_to_take <= 0:
                 break
 
             self._features.append(seq_feat[:tokens_to_take])
-            target_slice = seq_target[:tokens_to_take].reshape(-1, 1)
+            if attr_cfg["type"] == "classification":
+                target_slice = seq_target_flat[:tokens_to_take].astype(np.int64).reshape(-1, 1)
+            else:
+                target_slice = seq_target_flat[:tokens_to_take].astype(np.float32).reshape(-1, 1)
             self._targets.append(target_slice)
             self._num_tokens += tokens_to_take
 
@@ -536,11 +572,19 @@ class TokenAttributeProbeCallback(pl.Callback):
             self._reset()
             return
 
+        attr_cfg = self._ATTRIBUTE_CONFIG[self.attribute]
         features = np.concatenate(self._features, axis=0)
         targets = np.concatenate(self._targets, axis=0)
 
         X = torch.from_numpy(features).double()
-        Y = torch.from_numpy(targets).double()
+        if attr_cfg["type"] == "classification":
+            class_indices = targets.astype(np.int64).reshape(-1)
+            num_classes = attr_cfg["num_classes"]
+            Y = torch.zeros(class_indices.shape[0], num_classes, dtype=torch.double)
+            class_index_tensor = torch.from_numpy(class_indices).long().unsqueeze(1)
+            Y.scatter_(1, class_index_tensor, 1.0)
+        else:
+            Y = torch.from_numpy(targets).double()
 
         XtX = X.T @ X
         reg_eye = self.ridge_lambda * torch.eye(XtX.size(0), dtype=XtX.dtype)
@@ -553,12 +597,17 @@ class TokenAttributeProbeCallback(pl.Callback):
             weights = torch.linalg.lstsq(XtX, XtY).solution
 
         predictions = X @ weights
-        mse = torch.mean((predictions - Y) ** 2).item()
+        if attr_cfg["type"] == "classification":
+            predicted_classes = torch.argmax(predictions, dim=1)
+            accuracy = (predicted_classes == class_index_tensor.squeeze(1)).float().mean().item()
+            metric_value = accuracy
+        else:
+            mse = torch.mean((predictions - Y) ** 2).item()
+            metric_value = mse
 
-        metric_name = f"{self.metric_prefix}_{stage}"
         pl_module.log(
-            metric_name,
-            float(mse),
+            f"{self.metric_prefix}_{stage}",
+            float(metric_value),
             on_epoch=True,
             prog_bar=False,
             logger=True,
