@@ -82,6 +82,10 @@ class Utils:
         return pitch_sequence
 
     @staticmethod
+    def get_instrument_sequence(decoded_tokens):
+        return decoded_tokens[:, :, 2]
+
+    @staticmethod
     def get_continuous_token_size():
         return int(math.ceil(math.log2(max_bars))) + 5 + 12 + max_pitch + max_inst + len(ts_list)
     @staticmethod
