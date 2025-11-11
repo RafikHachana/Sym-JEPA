@@ -18,7 +18,11 @@ torch.set_float32_matmul_precision('high')
 
 from src.model import SymJEPA, SymJEPAConfig
 from src.dataset import MidiDataModule
-from src.pretraining_callbacks import EmbeddingProjectionCallback, PositionalEncodingProbeCallback
+from src.pretraining_callbacks import (
+    EmbeddingProjectionCallback,
+    PositionalEncodingProbeCallback,
+    TokenAttributeProbeCallback,
+)
 
 
 def _default_train_config() -> Dict[str, Any]:
@@ -247,13 +251,20 @@ def run_training(config: Dict[str, Any]) -> Dict[str, Any]:
         ridge_lambda=1e-3,
     )
 
+    attribute_probe_callbacks = [
+        TokenAttributeProbeCallback(attribute="pitch", stage="validate", max_tokens=8192, ridge_lambda=1e-3),
+        TokenAttributeProbeCallback(attribute="duration", stage="validate", max_tokens=8192, ridge_lambda=1e-3),
+        TokenAttributeProbeCallback(attribute="instrument", stage="validate", max_tokens=8192, ridge_lambda=1e-3),
+        TokenAttributeProbeCallback(attribute="pitch_class", stage="validate", max_tokens=8192, ridge_lambda=1e-3),
+    ]
+
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
         logger=logger,
         fast_dev_run=args.fast_dev_run,
         limit_train_batches=args.limit_batches if args.limit_batches else 1.0,
         limit_val_batches=args.limit_batches if args.limit_batches else 1.0,
-        callbacks=[checkpoint_callback, visualization_callback, positional_probe_callback],
+        callbacks=[checkpoint_callback, visualization_callback, positional_probe_callback, *attribute_probe_callbacks],
         accumulate_grad_batches=GRADIENT_ACCUMULATION_N_BATCHES,
         gradient_clip_val=1.0,
         log_every_n_steps=max(1, 50 // GRADIENT_ACCUMULATION_N_BATCHES),
