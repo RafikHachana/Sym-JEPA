@@ -22,12 +22,12 @@ pretrain:
   config_path: config/train_sample.yml
   overrides:
     misc:
-      run_name: symjepa-pretrain-${tune.trial_id}
+      run_name: symjepa-pretrain
 
 finetune:
   shared_overrides:
     misc:
-      run_name: symjepa-finetune-${tune.trial_id}
+      run_name: symjepa-finetune
   tasks:
     genre:
       config_path: config/finetune_genre_sample.yml
