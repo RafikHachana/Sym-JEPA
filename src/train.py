@@ -257,7 +257,7 @@ def run_training(config: Dict[str, Any]) -> Dict[str, Any]:
         accumulate_grad_batches=GRADIENT_ACCUMULATION_N_BATCHES,
         gradient_clip_val=1.0,
         log_every_n_steps=max(1, 50 // GRADIENT_ACCUMULATION_N_BATCHES),
-        val_check_interval=0.25,  # Run validation 10 times per epoch
+        val_check_interval=0.1,  # Run validation 10 times per epoch
         default_root_dir=args.output_dir
     )
 

@@ -119,10 +119,10 @@ class Utils:
 class SymJEPAConfig:
   d_model: int = 512
   context_size: int = 2048
-  tokenization: str = 'remi'
+  tokenization: str = 'octuple'
   lr: float = 1e-4
   lr_schedule: str = 'sqrt_decay'
-  warmup_steps: int = 2000
+  warmup_steps: int = 500
   max_steps: int = None
   encoder_layers: int = 16
   predictor_layers: int = 2
@@ -133,7 +133,7 @@ class SymJEPAConfig:
   num_epochs: int = 100
   momentum_start: float = 0.996
   momentum_end: float = 1.0
-  use_vicreg: bool = False
+  use_vicreg: bool = True
   vicreg_sim_weight: float = 25.0
   vicreg_var_weight: float = 25.0
   vicreg_cov_weight: float = 1.0
