@@ -1,5 +1,5 @@
 dataset:
-  limit_data: 128
+  limit_data: 10000
 
 model:
   tokenization: octuple

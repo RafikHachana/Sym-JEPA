@@ -9,7 +9,7 @@ ray:
   namespace: null
 
 resources:
-  cpu: 4
+  cpu: 20
   gpu: 1
 
 scheduler:
@@ -45,23 +45,23 @@ finetune:
         training:
           max_epochs: 1
         dataset:
-          limit_data: 2000
+          limit_data: 10000
     accompaniment_suggestion:
       config_path: config/finetune_genre_sample.yml
       overrides:
         training:
           max_epochs: 1
         dataset:
-          limit_data: 2000
+          limit_data: 10000
 
 param_space:
   seed: !choice [42, 1337]
   pretrain:
     training:
       lr: !loguniform [0.0005, 0.01]
-      max_epochs: 1
+      max_epochs: 3
     dataset:
-      limit: !choice [100]
+      limit: !choice [20000]
   finetune:
     shared:
       training:
