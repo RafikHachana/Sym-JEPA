@@ -140,9 +140,9 @@ class SymJEPAConfig:
   vicreg_loss_ratio: float = 0.3
   info_nce_loss_weight: float = 0.00
   pass_target_mask_to_predictor: bool = False
-  fuse_decoded_tokens: bool = True
+  fuse_decoded_tokens: bool = False
   add_onset_positional_encoding: bool = True
-  fuse_fme: bool = True
+  fuse_fme: bool = False
   use_cosine_loss: bool = True
   use_custom_continuous_tokens: bool = False
 class SymJEPA(pl.LightningModule):
@@ -170,9 +170,9 @@ class SymJEPA(pl.LightningModule):
                vicreg_loss_ratio=0.3,
                info_nce_loss_weight=0.00,
                pass_target_mask_to_predictor=False,
-               fuse_decoded_tokens=True,
+               fuse_decoded_tokens=False,
                add_onset_positional_encoding=True,
-               fuse_fme=True,
+               fuse_fme=False,
                use_cosine_loss=True,
                use_custom_continuous_tokens=False,
                **kwargs):
