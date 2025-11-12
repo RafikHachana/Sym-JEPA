@@ -416,7 +416,6 @@ class SymJEPA(pl.LightningModule):
 
   def encode_target(self, target_ids):
     target_emb = self.embed(target_ids)
-    target_emb = target_emb + self.positional_encoding[:, :target_emb.size(1), :]
     out = self.target_encoder(inputs_embeds=target_emb, output_hidden_states=True)
     target_encoder_hidden = out.last_hidden_state.detach()
 
