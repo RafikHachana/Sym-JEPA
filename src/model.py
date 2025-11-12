@@ -156,6 +156,8 @@ class SymJEPAConfig:
   fuse_fme: bool = True
   use_cosine_loss: bool = True
   use_custom_continuous_tokens: bool = False
+  log_identity_similarity: bool = True
+
 class SymJEPA(pl.LightningModule):
   def __init__(self,
                d_model=512,
@@ -186,6 +188,7 @@ class SymJEPA(pl.LightningModule):
                fuse_fme=True,
                use_cosine_loss=True,
                use_custom_continuous_tokens=False,
+               log_identity_similarity=False,
                **kwargs):
     super().__init__()
 
@@ -276,6 +279,7 @@ class SymJEPA(pl.LightningModule):
     self.add_onset_positional_encoding = add_onset_positional_encoding
     self.fuse_fme = fuse_fme
     self.use_custom_continuous_tokens = use_custom_continuous_tokens
+    self.log_identity_similarity = log_identity_similarity
     position = torch.arange(768).unsqueeze(1)
     div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
     pe = torch.zeros(1, 768, d_model)
@@ -326,7 +330,8 @@ class SymJEPA(pl.LightningModule):
     self.predictor = BertModel(predictor_config)
 
     self.latent_var_in = nn.Embedding(transpose_range + instrument_range + 1, self.d_model)
-    
+    self._last_context_emb = None
+
     self.save_hyperparameters()
   
   def _fuse_decoded_tokens(self, decoded_tokens, context_emb):
@@ -394,8 +399,10 @@ class SymJEPA(pl.LightningModule):
 
     return context_emb
 
-  def encode_context(self, context_ids, context_mask=None):
+  def encode_context(self, context_ids, context_mask=None, return_embeddings=False):
     context_emb = self.embed(context_ids)
+    if self.log_identity_similarity:
+      self._last_context_emb = context_emb.detach()
 
     out = self.context_encoder(inputs_embeds=context_emb, output_hidden_states=True, attention_mask=None)
     encoder_hidden = out.hidden_states[-1]
@@ -403,6 +410,8 @@ class SymJEPA(pl.LightningModule):
     if context_mask is not None:
       if self.tokenization == 'octuple':
         context_mask = context_mask[:, ::8]
+    if return_embeddings:
+      return encoder_hidden, context_emb
     return encoder_hidden
 
   def encode_target(self, target_ids):
@@ -505,6 +514,7 @@ class SymJEPA(pl.LightningModule):
       target_mask=batch.get('target_mask'),
       latent_var_ids=batch.get('latent_var_ids'))
 
+    self._log_identity_alignment(context_hidden, fold)
 
     if fold == 'train':
       n_masked_context = batch['context_mask'].sum(dim=-1).float().mean()
@@ -578,6 +588,30 @@ class SymJEPA(pl.LightningModule):
 
       return total_loss
     return jepa_loss
+
+  def _log_identity_alignment(self, context_hidden, fold):
+    if not self.log_identity_similarity:
+      return
+    if self._last_context_emb is None:
+      return
+
+    inputs = self._last_context_emb
+    outputs = context_hidden.detach()
+
+    seq_len = min(inputs.size(1), outputs.size(1))
+    inputs = inputs[:, :seq_len, :]
+    outputs = outputs[:, :seq_len, :]
+
+    inputs_flat = inputs.reshape(-1, inputs.size(-1))
+    outputs_flat = outputs.reshape(-1, outputs.size(-1))
+
+    cosine = F.cosine_similarity(outputs_flat, inputs_flat, dim=-1).mean()
+    l2 = F.mse_loss(outputs_flat, inputs_flat)
+
+    self.log(f'{fold}_identity_cosine', cosine, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+    self.log(f'{fold}_identity_mse', l2, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+
+    self._last_context_emb = None
 
   def on_train_batch_start(self, batch, batch_idx):
     current_context_ratio = self.trainer.datamodule.collator.ratio_context_step()
