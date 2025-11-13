@@ -14,11 +14,13 @@ import torch
 
 from src.model import Utils
 from src.octuple_tokenizer import max_inst
+from src.key_detection import build_pitch_class_histogram, estimate_key_from_pitch_classes
 from src.viz import visualize_tsne_clusters, visualize_umap_clusters
 
 
 class EmbeddingProjectionCallback(pl.Callback):
     """Collect a small batch of embeddings and log UMAP/t-SNE projections."""
+
 
     def __init__(
         self,
@@ -401,6 +403,17 @@ class PositionalEncodingProbeCallback(pl.Callback):
         self._num_tokens: int = 0
         self.coefficients_: Optional[np.ndarray] = None
 
+    @staticmethod
+    def _estimate_key_labels(decoded_tokens: torch.Tensor) -> torch.Tensor:
+        pitch_classes = Utils.get_pitch_class_sequence(decoded_tokens).detach().cpu().numpy()
+        labels = []
+        for seq_pitch_classes in pitch_classes:
+            histogram = build_pitch_class_histogram(seq_pitch_classes)
+            key_info = estimate_key_from_pitch_classes(histogram)
+            labels.append(key_info["index"])
+
+        return torch.tensor(labels, device=decoded_tokens.device, dtype=torch.long)
+
 
 __all__ = [
     "EmbeddingProjectionCallback",
@@ -412,18 +425,24 @@ __all__ = [
 class TokenAttributeProbeCallback(pl.Callback):
     """Fit linear probes that recover token-level attributes from encoder states."""
 
+    _SEQUENCE_TARGET_FNS: Dict[str, Callable[[torch.Tensor], torch.Tensor]] = {
+        "key": lambda decoded: TokenAttributeProbeCallback._estimate_key_labels(decoded),
+    }
+
     _ATTRIBUTE_CONFIG: Dict[str, Dict[str, Any]] = {
         "pitch": {
             "getter": Utils.get_pitch_sequence,
             "type": "regression",
             "metric": "pitch_probe_mse",
             "valid_fn": lambda arr: arr >= 0,
+            "scope": "token",
         },
         "duration": {
             "getter": Utils.get_duration_sequence,
             "type": "regression",
             "metric": "duration_probe_mse",
             "valid_fn": None,
+            "scope": "token",
         },
         "instrument": {
             "getter": Utils.get_instrument_sequence,
@@ -431,6 +450,7 @@ class TokenAttributeProbeCallback(pl.Callback):
             "metric": "instrument_probe_acc",
             "num_classes": max_inst + 1,
             "valid_fn": lambda arr: arr >= 0,
+            "scope": "token",
         },
         "pitch_class": {
             "getter": Utils.get_pitch_class_sequence,
@@ -438,6 +458,15 @@ class TokenAttributeProbeCallback(pl.Callback):
             "metric": "pitch_class_probe_acc",
             "num_classes": 12,
             "valid_fn": lambda arr: arr >= 0,
+            "scope": "token",
+        },
+        "key": {
+            "type": "classification",
+            "metric": "key_probe_acc",
+            "num_classes": 24,
+            "valid_fn": lambda arr: arr >= 0,
+            "scope": "sequence",
+            "sequence_target_fn": "key",
         },
     }
 
@@ -539,40 +568,65 @@ class TokenAttributeProbeCallback(pl.Callback):
                 "TokenAttributeProbeCallback expects the LightningModule to implement 'encode_context'."
             )
 
+        scope = attr_cfg.get("scope", "token")
+
         with torch.no_grad():
             context_hidden = pl_module.encode_context(context_ids, context_mask)
             decoded_tokens = Utils.decode_tokens(context_ids, pl_module.vocab).to(context_hidden.device)
-            attribute_tensor = attr_cfg["getter"](decoded_tokens).float()
+            if scope == "token":
+                attribute_tensor = attr_cfg["getter"](decoded_tokens).float()
+                targets_np = attribute_tensor.detach().cpu().numpy()
+            else:
+                sequence_labels = self._compute_sequence_attribute_labels(decoded_tokens, attr_cfg)
+                targets_np = sequence_labels.detach().cpu().numpy()
 
         features_np = context_hidden.detach().cpu().numpy()
-        targets_np = attribute_tensor.detach().cpu().numpy()
-
         valid_fn = attr_cfg.get("valid_fn")
 
-        for seq_feat, seq_target in zip(features_np, targets_np):
+        for seq_idx, seq_feat in enumerate(features_np):
             if self._num_tokens >= self.max_tokens:
                 break
-            seq_target_flat = seq_target.reshape(-1)
-            mask = np.ones_like(seq_target_flat, dtype=bool)
-            if valid_fn is not None:
-                mask &= valid_fn(seq_target_flat)
 
-            if not mask.any():
-                break
-            seq_feat = seq_feat[mask]
-            seq_target_flat = seq_target_flat[mask]
+            if scope == "token":
+                seq_target = targets_np[seq_idx]
+                seq_target_flat = seq_target.reshape(-1)
+                mask = np.ones_like(seq_target_flat, dtype=bool)
+                if valid_fn is not None:
+                    mask &= valid_fn(seq_target_flat)
 
-            tokens_to_take = min(seq_feat.shape[0], self.max_tokens - self._num_tokens)
+                if not mask.any():
+                    continue
+                seq_feat_filtered = seq_feat[mask]
+                seq_target_filtered = seq_target_flat[mask]
+            else:
+                seq_label = targets_np[seq_idx]
+                if valid_fn is not None:
+                    valid_mask = valid_fn(np.asarray([seq_label]))
+                    if not bool(np.all(valid_mask)):
+                        continue
+                seq_feat_filtered = seq_feat
+                seq_target_filtered = np.full(seq_feat.shape[0], seq_label, dtype=np.int64)
+
+            tokens_to_take = min(seq_feat_filtered.shape[0], self.max_tokens - self._num_tokens)
             if tokens_to_take <= 0:
                 break
 
-            self._features.append(seq_feat[:tokens_to_take])
+            self._features.append(seq_feat_filtered[:tokens_to_take])
             if attr_cfg["type"] == "classification":
-                target_slice = seq_target_flat[:tokens_to_take].astype(np.int64).reshape(-1, 1)
+                target_slice = seq_target_filtered[:tokens_to_take].astype(np.int64).reshape(-1, 1)
             else:
-                target_slice = seq_target_flat[:tokens_to_take].astype(np.float32).reshape(-1, 1)
+                target_slice = seq_target_filtered[:tokens_to_take].astype(np.float32).reshape(-1, 1)
             self._targets.append(target_slice)
             self._num_tokens += tokens_to_take
+
+    def _compute_sequence_attribute_labels(self, decoded_tokens: torch.Tensor, attr_cfg: Dict[str, Any]) -> torch.Tensor:
+        fn_name = attr_cfg.get("sequence_target_fn")
+        if fn_name is None:
+            raise ValueError(f"No sequence_target_fn specified for attribute '{self.attribute}'.")
+        fn = self._SEQUENCE_TARGET_FNS.get(fn_name)
+        if fn is None:
+            raise ValueError(f"Unknown sequence_target_fn '{fn_name}' for attribute '{self.attribute}'.")
+        return fn(decoded_tokens)
 
     def _fit_probe(self, pl_module: pl.LightningModule, stage: str) -> None:
         if self._num_tokens < self.min_tokens or not self._features:
