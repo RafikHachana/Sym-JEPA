@@ -460,6 +460,14 @@ class TokenAttributeProbeCallback(pl.Callback):
             "valid_fn": lambda arr: arr >= 0,
             "scope": "token",
         },
+        "beat_strength": {
+            "getter": Utils.get_strong_beat_sequence,
+            "type": "classification",
+            "metric": "beat_strength_probe_acc",
+            "num_classes": 2,
+            "valid_fn": None,
+            "scope": "token",
+        },
         "key": {
             "type": "classification",
             "metric": "key_probe_acc",

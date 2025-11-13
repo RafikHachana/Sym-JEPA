@@ -256,6 +256,7 @@ def run_training(config: Dict[str, Any]) -> Dict[str, Any]:
         TokenAttributeProbeCallback(attribute="duration", stage="validate", max_tokens=8192, ridge_lambda=1e-3),
         TokenAttributeProbeCallback(attribute="instrument", stage="validate", max_tokens=8192, ridge_lambda=1e-3),
         TokenAttributeProbeCallback(attribute="pitch_class", stage="validate", max_tokens=8192, ridge_lambda=1e-3),
+        TokenAttributeProbeCallback(attribute="beat_strength", stage="validate", max_tokens=8192, ridge_lambda=1e-3),
         TokenAttributeProbeCallback(attribute="key", stage="validate", max_tokens=8192, ridge_lambda=1e-3),
     ]
 

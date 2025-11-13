@@ -8,7 +8,7 @@ from src.constants import PAD_TOKEN
 from transformers import BertConfig, BertModel
 from copy import deepcopy
 import torch.nn.functional as F
-from src.octuple_tokenizer import token_to_value, get_max_vector, OctupleVocab, max_pitch, bar_max, max_inst, ts_list
+from src.octuple_tokenizer import token_to_value, get_max_vector, OctupleVocab, max_pitch, bar_max, max_inst, ts_list, pos_resolution
 from src.positional_encoding import MusicPositionalEncoding, FundamentalMusicEmbedding
 import pdb
 from src.masking import transpose_range, instrument_range
@@ -91,6 +91,12 @@ class Utils:
     @staticmethod
     def get_instrument_sequence(decoded_tokens):
         return decoded_tokens[:, :, 2]
+
+    @staticmethod
+    def get_strong_beat_sequence(decoded_tokens):
+        local_onset = Utils.get_local_onset_sequence(decoded_tokens)
+        strong = (local_onset % pos_resolution) == 0
+        return strong.long()
 
     @staticmethod
     def get_continuous_token_size():
