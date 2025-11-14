@@ -404,34 +404,6 @@ class PositionalEncodingProbeCallback(pl.Callback):
         self._num_tokens: int = 0
         self.coefficients_: Optional[np.ndarray] = None
 
-    @staticmethod
-    def _estimate_key_labels(decoded_tokens: torch.Tensor) -> torch.Tensor:
-        pitch_classes = Utils.get_pitch_class_sequence(decoded_tokens).detach().cpu().numpy()
-        labels = []
-        for seq_pitch_classes in pitch_classes:
-            histogram = build_pitch_class_histogram(seq_pitch_classes)
-            key_info = estimate_key_from_pitch_classes(histogram)
-            labels.append(key_info["index"])
-
-        return torch.tensor(labels, device=decoded_tokens.device, dtype=torch.long)
-
-    @staticmethod
-    def _estimate_chord_labels(decoded_tokens: torch.Tensor) -> torch.Tensor:
-        bars = decoded_tokens[:, :, 0].detach().cpu().numpy()
-        local_onsets = decoded_tokens[:, :, 1].detach().cpu().numpy()
-        pitch_classes = Utils.get_pitch_class_sequence(decoded_tokens).detach().cpu().numpy()
-
-        labels = []
-        for seq_idx in range(decoded_tokens.size(0)):
-            seq_labels = assign_chords_to_onsets(
-                bars[seq_idx],
-                local_onsets[seq_idx],
-                pitch_classes[seq_idx],
-            )
-            labels.append(seq_labels)
-
-        return torch.tensor(labels, device=decoded_tokens.device, dtype=torch.long)
-
 
 __all__ = [
     "EmbeddingProjectionCallback",
@@ -726,3 +698,32 @@ class TokenAttributeProbeCallback(pl.Callback):
         self._targets: List[np.ndarray] = []
         self._num_tokens: int = 0
         self.coefficients_: Optional[np.ndarray] = None
+
+    @staticmethod
+    def _estimate_key_labels(decoded_tokens: torch.Tensor) -> torch.Tensor:
+        pitch_classes = Utils.get_pitch_class_sequence(decoded_tokens).detach().cpu().numpy()
+        labels = []
+        for seq_pitch_classes in pitch_classes:
+            histogram = build_pitch_class_histogram(seq_pitch_classes)
+            key_info = estimate_key_from_pitch_classes(histogram)
+            labels.append(key_info["index"])
+
+        return torch.tensor(labels, device=decoded_tokens.device, dtype=torch.long)
+
+    @staticmethod
+    def _estimate_chord_labels(decoded_tokens: torch.Tensor) -> torch.Tensor:
+        bars = decoded_tokens[:, :, 0].detach().cpu().numpy()
+        local_onsets = decoded_tokens[:, :, 1].detach().cpu().numpy()
+        pitch_classes = Utils.get_pitch_class_sequence(decoded_tokens).detach().cpu().numpy()
+
+        labels = []
+        for seq_idx in range(decoded_tokens.size(0)):
+            seq_labels = assign_chords_to_onsets(
+                bars[seq_idx],
+                local_onsets[seq_idx],
+                pitch_classes[seq_idx],
+            )
+            labels.append(seq_labels)
+
+        return torch.tensor(labels, device=decoded_tokens.device, dtype=torch.long)
+
