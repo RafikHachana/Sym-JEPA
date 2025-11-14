@@ -15,6 +15,7 @@ import torch
 from src.model import Utils
 from src.octuple_tokenizer import max_inst
 from src.key_detection import build_pitch_class_histogram, estimate_key_from_pitch_classes
+from src.chord_detection import assign_chords_to_onsets, NUM_CHORD_CLASSES
 from src.viz import visualize_tsne_clusters, visualize_umap_clusters
 
 
@@ -414,6 +415,23 @@ class PositionalEncodingProbeCallback(pl.Callback):
 
         return torch.tensor(labels, device=decoded_tokens.device, dtype=torch.long)
 
+    @staticmethod
+    def _estimate_chord_labels(decoded_tokens: torch.Tensor) -> torch.Tensor:
+        bars = decoded_tokens[:, :, 0].detach().cpu().numpy()
+        local_onsets = decoded_tokens[:, :, 1].detach().cpu().numpy()
+        pitch_classes = Utils.get_pitch_class_sequence(decoded_tokens).detach().cpu().numpy()
+
+        labels = []
+        for seq_idx in range(decoded_tokens.size(0)):
+            seq_labels = assign_chords_to_onsets(
+                bars[seq_idx],
+                local_onsets[seq_idx],
+                pitch_classes[seq_idx],
+            )
+            labels.append(seq_labels)
+
+        return torch.tensor(labels, device=decoded_tokens.device, dtype=torch.long)
+
 
 __all__ = [
     "EmbeddingProjectionCallback",
@@ -427,6 +445,7 @@ class TokenAttributeProbeCallback(pl.Callback):
 
     _SEQUENCE_TARGET_FNS: Dict[str, Callable[[torch.Tensor], torch.Tensor]] = {
         "key": lambda decoded: TokenAttributeProbeCallback._estimate_key_labels(decoded),
+        "chord": lambda decoded: TokenAttributeProbeCallback._estimate_chord_labels(decoded),
     }
 
     _ATTRIBUTE_CONFIG: Dict[str, Dict[str, Any]] = {
@@ -475,6 +494,14 @@ class TokenAttributeProbeCallback(pl.Callback):
             "valid_fn": lambda arr: arr >= 0,
             "scope": "sequence",
             "sequence_target_fn": "key",
+        },
+        "chord": {
+            "type": "classification",
+            "metric": "chord_probe_acc",
+            "num_classes": NUM_CHORD_CLASSES,
+            "valid_fn": lambda arr: arr >= 0,
+            "scope": "sequence",
+            "sequence_target_fn": "chord",
         },
     }
 
