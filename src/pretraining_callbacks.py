@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
 import mlflow
@@ -13,10 +13,10 @@ import pytorch_lightning as pl
 import torch
 
 from src.model import Utils
-from src.octuple_tokenizer import max_inst
+from src.octuple_tokenizer import max_inst, max_pitch, pos_resolution, ts_list
 from src.key_detection import build_pitch_class_histogram, estimate_key_from_pitch_classes
 from src.chord_detection import assign_chords_to_onsets, NUM_CHORD_CLASSES
-from src.viz import visualize_tsne_clusters, visualize_umap_clusters
+# from src.viz import visualize_tsne_clusters, visualize_umap_clusters
 
 
 class EmbeddingProjectionCallback(pl.Callback):
@@ -411,7 +411,6 @@ __all__ = [
     "TokenAttributeProbeCallback",
 ]
 
-
 class TokenAttributeProbeCallback(pl.Callback):
     """Fit linear probes that recover token-level attributes from encoder states."""
 
@@ -487,6 +486,7 @@ class TokenAttributeProbeCallback(pl.Callback):
         metric_prefix: Optional[str] = None,
         dataloader_idx: int = 0,
         min_tokens: int = 256,
+        max_debug_examples: int = 5,
     ) -> None:
         if attribute not in self._ATTRIBUTE_CONFIG:
             raise ValueError(
@@ -507,6 +507,7 @@ class TokenAttributeProbeCallback(pl.Callback):
         self.metric_prefix = metric_prefix or default_metric
         self.dataloader_idx = dataloader_idx
         self.min_tokens = min_tokens
+        self.max_debug_examples = max_debug_examples
 
         self._reset()
 
@@ -618,13 +619,15 @@ class TokenAttributeProbeCallback(pl.Callback):
             if tokens_to_take <= 0:
                 break
 
-            self._features.append(seq_feat_filtered[:tokens_to_take])
-            if attr_cfg["type"] == "classification":
-                target_slice = seq_target_filtered[:tokens_to_take].astype(np.int64).reshape(-1, 1)
-            else:
-                target_slice = seq_target_filtered[:tokens_to_take].astype(np.float32).reshape(-1, 1)
-            self._targets.append(target_slice)
-            self._num_tokens += tokens_to_take
+        slice_feats = seq_feat_filtered[:tokens_to_take]
+        self._features.append(slice_feats)
+        if attr_cfg["type"] == "classification":
+            target_slice = seq_target_filtered[:tokens_to_take].astype(np.int64).reshape(-1, 1)
+        else:
+            target_slice = seq_target_filtered[:tokens_to_take].astype(np.float32).reshape(-1, 1)
+        self._targets.append(target_slice)
+        self._num_tokens += tokens_to_take
+        self._store_debug_example(decoded_tokens[seq_idx], targets_np[seq_idx], slice_feats, target_slice, scope)
 
     def _compute_sequence_attribute_labels(self, decoded_tokens: torch.Tensor, attr_cfg: Dict[str, Any]) -> torch.Tensor:
         fn_name = attr_cfg.get("sequence_target_fn")
@@ -727,3 +730,29 @@ class TokenAttributeProbeCallback(pl.Callback):
 
         return torch.tensor(labels, device=decoded_tokens.device, dtype=torch.long)
 
+        self.debug_examples: List[Tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+
+    def _store_debug_example(
+        self,
+        decoded_sequence: torch.Tensor,
+        full_targets: np.ndarray,
+        features: np.ndarray,
+        targets_slice: np.ndarray,
+        scope: str,
+    ) -> None:
+        if len(self.debug_examples) >= self.max_debug_examples:
+            return
+        decoded_np = decoded_sequence.detach().cpu().numpy()
+        if scope == "token":
+            example = (
+                decoded_np[: features.shape[0]],
+                features.copy(),
+                targets_slice.squeeze(-1).copy(),
+            )
+        else:
+            example = (
+                decoded_np,
+                features.copy(),
+                targets_slice.squeeze(-1).copy(),
+            )
+        self.debug_examples.append(example)
