@@ -709,14 +709,14 @@ class TokenAttributeProbeCallback(pl.Callback):
             logger=True,
             sync_dist=True,
         )
-        pl_module.log(
-            f"{self.metric_prefix}_n_tokens_{stage}",
-            float(self._num_tokens),
-            on_epoch=True,
-            prog_bar=False,
-            logger=True,
-            sync_dist=True,
-        )
+        # pl_module.log(
+        #     f"{self.metric_prefix}_n_tokens_{stage}",
+        #     float(self._num_tokens),
+        #     on_epoch=True,
+        #     prog_bar=False,
+        #     logger=True,
+        #     sync_dist=True,
+        # )
 
         self.coefficients_: Optional[np.ndarray] = weights.detach().cpu().numpy()
         self._reset()
